@@ -156,9 +156,6 @@ export function layoutShape(shape: Shape): ShapeLayout {
     const nextLeg = shape.legs[legIndex + 1];
 
     if (junction.type === 'disconnect') {
-      // Close this leg with an ordinary post, step forward a hair, then
-      // start the next leg with its own ordinary post — same heading, no
-      // shared hardware. This is what lets base height jump freely.
       posts.push({
         index: posts.length,
         legIndices: [legIndex],
@@ -180,11 +177,6 @@ export function layoutShape(shape: Shape): ShapeLayout {
       return;
     }
 
-    // left / right / straight — one real, physically bolted double post.
-    // Rendered as a SINGLE merged box (not two pieces): that's what the
-    // hardware actually is. Sized to span BOTH sides' full range — down to
-    // whichever leg's base is lower, up to whichever leg's top is higher —
-    // so it never falls short of either side's boards.
     const newHeading = heading + TURN_RAD[junction.type];
     const mergedBaseHeightCm = Math.min(leg.baseHeightCm, nextLeg.baseHeightCm);
     const mergedTopHeightCm = Math.max(leg.heightCm, nextLeg.heightCm);

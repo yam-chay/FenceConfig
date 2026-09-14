@@ -5,9 +5,60 @@ import { layoutShape, type Shape } from '../geometry/shape';
 import { computeBoardStack } from '../geometry/field';
 import { POST_THICKNESS_CM, BOARD_THICKNESS_CM } from '../geometry/constants';
 
+/** What got clicked — a post (color applies to ALL posts) or a board at a given absolute height (color applies via the below/above split). */
+export type Selection =
+  | { kind: 'post' }
+  | { kind: 'board'; legIndex: number; fieldIndex: number; heightCm: number };
+
+/**
+ * One coloring action, in the order it was taken. Later rules override
+ * earlier ones for any board they both match — this is what makes "last
+ * action wins" work automatically, including for overlapping below/above
+ * ranges, with no separate recency flag needed.
+ */
+export interface BoardColorRule {
+  heightCm: number;
+  colorHex: string;
+  /** 'exact' = just the one board clicked. 'below'/'above' = that board and everything toward the ground/sky, within this rule's scope. */
+  direction: 'exact' | 'below' | 'above';
+  /** 'field' = just the column of boards between the 2 posts this was clicked in. 'global' = every field in the whole shape. */
+  scope: 'field' | 'global';
+  legIndex?: number;
+  fieldIndex?: number;
+}
+
+export interface ColorScheme {
+  postColorHex: string;
+  /** Used by any board no rule below applies to. */
+  baseBoardColorHex: string;
+  boardRules: BoardColorRule[];
+}
+
+/** Pure — used by both the scene (to color meshes) and the panel (to seed the color picker with a board's current color on click). */
+export function resolveBoardColorHex(
+  colorScheme: ColorScheme,
+  legIndex: number,
+  fieldIndex: number,
+  heightCm: number,
+): string {
+  let color = colorScheme.baseBoardColorHex;
+  for (const rule of colorScheme.boardRules) {
+    if (rule.scope === 'field' && (rule.legIndex !== legIndex || rule.fieldIndex !== fieldIndex)) continue;
+    let matches = false;
+    if (rule.direction === 'exact') matches = Math.abs(rule.heightCm - heightCm) < 0.05;
+    else if (rule.direction === 'below') matches = heightCm <= rule.heightCm;
+    else matches = heightCm >= rule.heightCm;
+    if (matches) color = rule.colorHex;
+  }
+  return color;
+}
+
 interface SceneProps {
   shape: Shape;
-  fenceColor: string;
+  colorScheme: ColorScheme;
+  /** Controlled — Scene renders a highlight based on this, doesn't just track its own click state. */
+  selection: Selection | null;
+  onSelect?: (selection: Selection | null) => void;
   onStats?: (stats: {
     fps: number;
     drawCalls: number;
@@ -28,7 +79,7 @@ interface FrameTarget {
 const VIEW_DIRECTION = new THREE.Vector3(2, 4.2, 11).normalize();
 const DEFAULT_POLAR = Math.acos(VIEW_DIRECTION.y);
 const DEFAULT_AZIMUTH = Math.atan2(VIEW_DIRECTION.x, VIEW_DIRECTION.z);
-const AZIMUTH_RANGE = Math.PI/1.5; // full horizontal rotation — polar stays locked below
+const AZIMUTH_RANGE = Math.PI / 2; // full horizontal rotation — polar stays locked below
 const POLAR_RANGE = (15 * Math.PI) / 180;
 const ZOOM_IN_FACTOR = 0.55;
 const ZOOM_OUT_FACTOR = 1.7;
@@ -72,7 +123,7 @@ function diffFocusLegs(prev: Shape, next: Shape): { legIndices: number[]; resetA
   return null;
 }
 
-export default function Scene({ shape, fenceColor, onStats }: SceneProps) {
+export default function Scene({ shape, colorScheme, selection, onSelect, onStats }: SceneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -81,13 +132,12 @@ export default function Scene({ shape, fenceColor, onStats }: SceneProps) {
   const fenceGroupRef = useRef<THREE.Group | null>(null);
   const onStatsRef = useRef(onStats);
   onStatsRef.current = onStats;
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
   const geometryStatsRef = useRef({ boardCount: 0, postCount: 0, doublePostCount: 0 });
 
   const shapeBoundsRef = useRef<FrameTarget>({ centerX: 4, centerY: 0.8, centerZ: 0, radius: 4 });
   const prevShapeRef = useRef<Shape | null>(null);
-  // The target actually used for the last framing operation (snap or fly),
-  // regardless of what padding was used — lets the next edit measure the
-  // user's CURRENT zoom relative to it, instead of resetting to a fixed one.
   const lastFrameTargetRef = useRef<FrameTarget | null>(null);
   const lastPaddingRef = useRef(FULL_SHAPE_PADDING);
   const flyRef = useRef<null | {
@@ -115,12 +165,6 @@ export default function Scene({ shape, fenceColor, onStats }: SceneProps) {
   function applyConstraints(distance: number) {
     const controls = controlsRef.current;
     if (!controls) return;
-    // maxDistance is anchored to the FULL shape's scale, not the current
-    // target's — otherwise focusing on one tiny element traps zoom-out
-    // inside a bubble sized to that element, with no way to scroll back out
-    // to see everything. minDistance stays relative (fine close-up control
-    // on whatever's currently framed), with a small absolute floor so you
-    // can always get reasonably close even when framing the whole shape.
     const fullDistance = distanceForTarget(shapeBoundsRef.current, FULL_SHAPE_PADDING);
     controls.minDistance = Math.min(distance * ZOOM_IN_FACTOR, 1.2);
     controls.maxDistance = Math.max(distance * ZOOM_OUT_FACTOR, fullDistance * 0.95);
@@ -150,11 +194,6 @@ export default function Scene({ shape, fenceColor, onStats }: SceneProps) {
     lastPaddingRef.current = padding;
   }
 
-  // relativeToCurrent: preserve however zoomed-in the user currently is,
-  // instead of resetting distance to the target's own padding-based one.
-  // preserveAngle: keep the user's current viewing angle (rotation) instead
-  // of resetting to the default VIEW_DIRECTION — used for edits that don't
-  // warrant a "return to default" (see diffFocusLegs' resetAngle).
   function flyTo(
     target: FrameTarget,
     padding: number,
@@ -164,9 +203,6 @@ export default function Scene({ shape, fenceColor, onStats }: SceneProps) {
     const controls = controlsRef.current;
     if (!camera || !controls) return;
 
-    // Flush any residual damped rotation/zoom left over from a drag that
-    // just ended — otherwise it silently reapplies once update() resumes
-    // after the fly, fighting the animation and showing up as jitter.
     const hadDamping = controls.enableDamping;
     controls.enableDamping = false;
     controls.update();
@@ -244,9 +280,6 @@ export default function Scene({ shape, fenceColor, onStats }: SceneProps) {
     fenceGroupRef.current = fenceGroup;
     scene.add(fenceGroup);
 
-    // Click-to-focus: a plain click (not a drag) on a post/board flies the
-    // camera in close on it. Clicking empty ground does nothing — no reset
-    // to a "default" view.
     const raycaster = new THREE.Raycaster();
     const handlePointerDown = (e: PointerEvent) => {
       pointerDownRef.current = { x: e.clientX, y: e.clientY };
@@ -256,7 +289,7 @@ export default function Scene({ shape, fenceColor, onStats }: SceneProps) {
       pointerDownRef.current = null;
       if (!down) return;
       const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
-      if (moved > CLICK_MOVE_THRESHOLD_PX) return; // was a drag, not a click
+      if (moved > CLICK_MOVE_THRESHOLD_PX) return;
 
       const rect = renderer.domElement.getBoundingClientRect();
       const ndc = new THREE.Vector2(
@@ -265,15 +298,31 @@ export default function Scene({ shape, fenceColor, onStats }: SceneProps) {
       );
       raycaster.setFromCamera(ndc, camera);
       const hits = raycaster.intersectObjects(fenceGroup.children, false);
-      if (hits.length === 0) return;
+      if (hits.length === 0) {
+        onSelectRef.current?.(null);
+        return;
+      }
 
       const mesh = hits[0].object as THREE.Mesh;
+      const kind = mesh.userData.kind as 'post' | 'board' | undefined;
+      if (kind === 'post') {
+        onSelectRef.current?.({ kind: 'post' });
+      } else if (kind === 'board') {
+        onSelectRef.current?.({
+          kind: 'board',
+          heightCm: mesh.userData.heightCm as number,
+          legIndex: mesh.userData.legIndex as number,
+          fieldIndex: mesh.userData.fieldIndex as number,
+        });
+      }
+
       mesh.geometry.computeBoundingSphere();
       const sphere = mesh.geometry.boundingSphere;
       const radius = Math.max(sphere ? sphere.radius : 0.3, 0.25);
       flyTo(
         { centerX: mesh.position.x, centerY: mesh.position.y, centerZ: mesh.position.z, radius },
         FOCUS_ELEMENT_PADDING,
+        { preserveAngle: true },
       );
     };
     renderer.domElement.addEventListener('pointerdown', handlePointerDown);
@@ -288,9 +337,6 @@ export default function Scene({ shape, fenceColor, onStats }: SceneProps) {
 
       const fly = flyRef.current;
       if (fly) {
-        // While flying, controls.update() is skipped entirely — calling it
-        // here would let OrbitControls recompute the camera from its own
-        // (stale/damped) internal state and fight this lerp every frame.
         const t = Math.min(1, (performance.now() - fly.startTime) / FLY_DURATION_MS);
         const eased = easeInOutQuad(t);
         camera.position.lerpVectors(fly.fromPos, fly.toPos, eased);
@@ -301,7 +347,7 @@ export default function Scene({ shape, fenceColor, onStats }: SceneProps) {
           applyConstraints(fly.toDistance);
           controls.enabled = true;
           flyRef.current = null;
-          controls.update(); // one resync now that position/target are final
+          controls.update();
         }
       } else {
         controls.update();
@@ -345,12 +391,19 @@ export default function Scene({ shape, fenceColor, onStats }: SceneProps) {
     };
   }, []);
 
-  // Rebuild the procedural geometry whenever the live shape/color changes.
+    // Rebuild the procedural geometry whenever the live shape/colors/selection
+  // change. Only resets the in-progress fly/controls when SHAPE actually
+  // changed — a color pick or a click-to-select must never cancel the
+  // fly-to-focus animation that a click just started.
   useEffect(() => {
     const fenceGroup = fenceGroupRef.current;
     if (!fenceGroup) return;
-    flyRef.current = null;
-    if (controlsRef.current) controlsRef.current.enabled = true;
+    const isFirstBuildCheck = prevShapeRef.current === null;
+    const shapeChangedCheck = !isFirstBuildCheck && prevShapeRef.current !== shape;
+    if (isFirstBuildCheck || shapeChangedCheck) {
+      flyRef.current = null;
+      if (controlsRef.current) controlsRef.current.enabled = true;
+    }
 
     while (fenceGroup.children.length) {
       const child = fenceGroup.children.pop()!;
@@ -362,9 +415,34 @@ export default function Scene({ shape, fenceColor, onStats }: SceneProps) {
 
     const layout = layoutShape(shape);
 
-    const boardMat = new THREE.MeshStandardMaterial({ color: fenceColor });
-    const postMat = new THREE.MeshStandardMaterial({ color: 0x3a3f44 });
-    const doublePostMat = new THREE.MeshStandardMaterial({ color: 0xb5533c });
+    const postMat = new THREE.MeshStandardMaterial({ color: colorScheme.postColorHex });
+    function withHighlight(mat: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
+      const clone = mat.clone();
+      // Kept subtle on purpose — this needs to read as "selected" without
+      // hiding the actual color underneath it, since that color is exactly
+      // what the person is trying to check by looking at this element.
+      clone.emissive = new THREE.Color(0xffd54a);
+      clone.emissiveIntensity = 0.22;
+      return clone;
+    }
+    const postDisplayMat = selection?.kind === 'post' ? withHighlight(postMat) : postMat;
+
+    // Board color resolution: belowSplit and aboveSplit are two INDEPENDENT
+    // boundaries — picking one never touches the other, so skipped-over
+    // boards in the middle correctly stay on baseBoardColorHex instead of
+    // being swallowed by whichever split was set second.
+    const boardMatCache = new Map<string, THREE.MeshStandardMaterial>();
+    function boardMaterial(hex: string): THREE.MeshStandardMaterial {
+      let mat = boardMatCache.get(hex);
+      if (!mat) {
+        mat = new THREE.MeshStandardMaterial({ color: hex });
+        boardMatCache.set(hex, mat);
+      }
+      return mat;
+    }
+        function resolveHex(legIndex: number, fieldIndex: number, heightCm: number): string {
+      return resolveBoardColorHex(colorScheme, legIndex, fieldIndex, heightCm);
+    }
 
     const postThicknessM = POST_THICKNESS_CM / 100;
     const boardThicknessM = BOARD_THICKNESS_CM / 100;
@@ -373,8 +451,6 @@ export default function Scene({ shape, fenceColor, onStats }: SceneProps) {
     let totalPosts = 0;
     let totalDoublePosts = 0;
 
-    // Bounds per leg index, so an edit can reframe around just the legs that
-    // actually changed instead of the whole shape every time.
     const legBounds = new Map<number, { minX: number; maxX: number; minZ: number; maxZ: number; topM: number }>();
     function includeInLeg(legIndex: number, x: number, z: number, topM: number) {
       const b = legBounds.get(legIndex);
@@ -402,9 +478,10 @@ export default function Scene({ shape, fenceColor, onStats }: SceneProps) {
       const baseM = post.baseHeightCm / 100;
       const heightM = Math.max(post.heightCm, 1) / 100;
       const geo = new THREE.BoxGeometry(postThicknessM, heightM, postThicknessM);
-      const mesh = new THREE.Mesh(geo, post.isDoublePost ? doublePostMat : postMat);
+      const mesh = new THREE.Mesh(geo, postDisplayMat);
       mesh.position.set(post.position.x, baseM + heightM / 2, post.position.z);
       mesh.rotation.y = -post.heading;
+      mesh.userData.kind = 'post';
       fenceGroup.add(mesh);
       totalPosts++;
       if (post.isDoublePost) totalDoublePosts++;
@@ -421,10 +498,22 @@ export default function Scene({ shape, fenceColor, onStats }: SceneProps) {
       const boardHeightM = field.boardHeightCm / 100;
       const baseM = field.baseHeightCm / 100;
       for (const boardCenterCm of boardStack.boardCenters) {
+        const boardAbsHeightCm = field.baseHeightCm + boardCenterCm;
+        const hex = resolveHex(field.legIndex, field.index, boardAbsHeightCm);
+        const isHighlighted =
+          selection?.kind === 'board' &&
+          selection.legIndex === field.legIndex &&
+          selection.fieldIndex === field.index &&
+          Math.abs(selection.heightCm - boardAbsHeightCm) < 0.05;
+        const mat = isHighlighted ? withHighlight(boardMaterial(hex)) : boardMaterial(hex);
         const geo = new THREE.BoxGeometry(field.lengthM * 0.96, boardHeightM, boardThicknessM);
-        const mesh = new THREE.Mesh(geo, boardMat);
+        const mesh = new THREE.Mesh(geo, mat);
         mesh.position.set(field.position.x, baseM + boardCenterCm / 100, field.position.z);
         mesh.rotation.y = -field.heading;
+        mesh.userData.kind = 'board';
+        mesh.userData.heightCm = boardAbsHeightCm;
+        mesh.userData.legIndex = field.legIndex;
+        mesh.userData.fieldIndex = field.index;
         fenceGroup.add(mesh);
         totalBoards++;
       }
@@ -457,7 +546,6 @@ export default function Scene({ shape, fenceColor, onStats }: SceneProps) {
       return;
     }
     if (focusDiff === null) {
-      // Nothing in legs/junctions changed (e.g. only the color did) — leave the camera exactly where it is.
       return;
     }
 
@@ -475,7 +563,7 @@ export default function Scene({ shape, fenceColor, onStats }: SceneProps) {
       fMaxZ = Math.max(fMaxZ, b.maxZ);
       fTopM = Math.max(fTopM, b.topM);
     }
-    if (!isFinite(fMinX)) return; // shouldn't happen, but don't move the camera on bad data
+    if (!isFinite(fMinX)) return;
 
     const focusTarget: FrameTarget = {
       centerX: (fMinX + fMaxX) / 2,
@@ -484,7 +572,7 @@ export default function Scene({ shape, fenceColor, onStats }: SceneProps) {
       radius: Math.max(Math.sqrt((fMaxX - fMinX) ** 2 + (fMaxZ - fMinZ) ** 2 + fTopM ** 2) / 2, 1.5),
     };
     flyTo(focusTarget, FOCUS_EDIT_PADDING, { relativeToCurrent: true, preserveAngle: !focusDiff.resetAngle });
-  }, [shape, fenceColor]);
+  }, [shape, colorScheme, selection]);
 
   return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />;
 }
