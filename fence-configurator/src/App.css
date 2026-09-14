@@ -35,6 +35,25 @@
   overflow-y: auto;
 }
 
+@media (max-width: 700px) {
+  .app {
+    flex-direction: column;
+  }
+
+  .scene-area {
+    flex: 1 1 55vh;
+    min-height: 55vh;
+  }
+
+  .panel {
+    width: 100%;
+    max-height: 40vh;
+    border-inline-start: none;
+    border-top: 1px solid #e2e2e2;
+    box-sizing: border-box;
+  }
+}
+
 .panel h1 {
   font-size: 18px;
   margin-bottom: 8px;
@@ -99,6 +118,89 @@
 
 .summary strong {
   font-size: 20px;
+}
+
+.segment-block {
+  border: 1px solid #e2e2e2;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 14px;
+  background: #fff;
+}
+
+.segment-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.leg-row {
+  margin-bottom: 4px;
+}
+
+.leg-block {
+  margin-bottom: 4px;
+}
+
+.base-height-row {
+  color: #8a5a3a;
+}
+
+.corner-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 12px;
+}
+
+.junction-row {
+  margin: -6px 0 14px 0;
+  flex-wrap: wrap;
+}
+
+.pill {
+  border: 1px solid #d5d5d5;
+  background: #fff;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pill.active {
+  background: #3a3f44;
+  color: #fff;
+  border-color: #3a3f44;
+}
+
+.segment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.text-btn {
+  border: none;
+  background: none;
+  color: #2d5f8a;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.add-segment {
+  display: block;
+  margin-bottom: 20px;
+}
+
+.height-row {
+  margin-top: 4px;
 }
 
 .footnote {

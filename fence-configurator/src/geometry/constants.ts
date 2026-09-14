@@ -8,11 +8,12 @@
  * post ordering calc), 2026-09-12 — see areas/fence-configurator-client.md.
  * Anything marked PLACEHOLDER has not been confirmed yet and must be
  * replaced with real numbers before this feeds a production build.
+ *
+ * Board height and spacer height moved OUT of this file — they're no longer
+ * global, they come from the selected catalog model+size. See catalog.ts.
  */
 
 // --- Confirmed constants ---
-export const BOARD_HEIGHT_CM = 7;
-export const SPACER_HEIGHT_CM = 1;
 /** Height eaten at the post's base by the rosette — boards start above this, not at wall height 0. */
 export const ROSETTE_OFFSET_CM = 2;
 /** Margin at the top/bottom of the board stack inside the groove. */
