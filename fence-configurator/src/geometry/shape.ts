@@ -1,5 +1,4 @@
 import { MAX_FIELD_LENGTH_M } from './constants';
-import { resolveBoardDims } from './catalog';
 
 /**
  * A leg is the basic, addressable fence element — one straight run between
@@ -53,8 +52,6 @@ export interface FieldPlacement {
   heading: number;
   baseHeightCm: number;
   fillHeightCm: number;
-  boardHeightCm: number;
-  spacerHeightCm: number;
 }
 
 export interface PostPlacement {
@@ -109,7 +106,6 @@ export function layoutShape(shape: Shape): ShapeLayout {
   shape.legs.forEach((leg, legIndex) => {
     const { fieldLengthM, fieldCount } = splitLegIntoFields(leg.lengthM);
     const fillHeightCm = leg.heightCm - leg.baseHeightCm;
-    const { boardHeightCm, spacerHeightCm } = resolveBoardDims(leg.modelId, leg.sizeId);
 
     for (let f = 0; f < fieldCount; f++) {
       const midX = x + (Math.cos(heading) * fieldLengthM) / 2;
@@ -122,8 +118,6 @@ export function layoutShape(shape: Shape): ShapeLayout {
         heading,
         baseHeightCm: leg.baseHeightCm,
         fillHeightCm,
-        boardHeightCm,
-        spacerHeightCm,
       });
       x += Math.cos(heading) * fieldLengthM;
       z += Math.sin(heading) * fieldLengthM;

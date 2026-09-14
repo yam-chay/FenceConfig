@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import Scene, { type ColorScheme, type Selection, resolveBoardColorHex } from './scene/Scene';
+import Scene, {
+  type ColorScheme,
+  type ProfileScheme,
+  type Selection,
+  resolveBoardColorHex,
+  resolveBoardProfile,
+  resolveSpacerMultiplier,
+} from './scene/Scene';
 import type { Shape, Leg, Junction } from './geometry/shape';
 import { DEFAULT_MODEL_ID, DEFAULT_SIZE_ID, FENCE_CATALOG } from './geometry/catalog';
+import { MAX_FIELD_LENGTH_M } from './geometry/constants';
 import './App.css';
 
 const FENCE_COLORS = [
@@ -33,11 +41,20 @@ function defaultColorScheme(): ColorScheme {
   };
 }
 
+function defaultProfileScheme(): ProfileScheme {
+  return { rules: [], spacerRules: [] };
+}
+
 export default function App() {
   const [shape, setShape] = useState<Shape>(defaultShape());
   const [colorScheme, setColorScheme] = useState<ColorScheme>(defaultColorScheme());
+  const [profileScheme, setProfileScheme] = useState<ProfileScheme>(defaultProfileScheme());
   const [selection, setSelection] = useState<Selection | null>(null);
   const [pendingBoardColor, setPendingBoardColor] = useState(FENCE_COLORS[0].hex);
+  const [pendingModelId, setPendingModelId] = useState(DEFAULT_MODEL_ID);
+  const [pendingSizeId, setPendingSizeId] = useState(DEFAULT_SIZE_ID);
+  const [pendingSpacer, setPendingSpacer] = useState(1);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [applyToAllFields, setApplyToAllFields] = useState(false);
   const [sheetHeight, setSheetHeight] = useState(260);
   const dragStartRef = useRef<{ startY: number; startHeight: number } | null>(null);
@@ -46,9 +63,10 @@ export default function App() {
   // legs, junctions, post/board colors). Every change to either pushes a
   // new snapshot, except when the change came FROM undo/redo itself
   // (isUndoRedoRef guards against re-recording that as a new step).
-  const [history, setHistory] = useState<{ entries: { shape: Shape; colorScheme: ColorScheme }[]; index: number }>(
-    () => ({ entries: [{ shape, colorScheme }], index: 0 }),
-  );
+  const [history, setHistory] = useState<{
+    entries: { shape: Shape; colorScheme: ColorScheme; profileScheme: ProfileScheme }[];
+    index: number;
+  }>(() => ({ entries: [{ shape, colorScheme, profileScheme }], index: 0 }));
   const isUndoRedoRef = useRef(false);
 
   useEffect(() => {
@@ -58,10 +76,10 @@ export default function App() {
     }
     setHistory((h) => {
       const truncated = h.entries.slice(0, h.index + 1);
-      return { entries: [...truncated, { shape, colorScheme }], index: truncated.length };
+      return { entries: [...truncated, { shape, colorScheme, profileScheme }], index: truncated.length };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shape, colorScheme]);
+  }, [shape, colorScheme, profileScheme]);
 
   function undo() {
     if (history.index <= 0) return;
@@ -69,6 +87,7 @@ export default function App() {
     isUndoRedoRef.current = true;
     setShape(history.entries[newIndex].shape);
     setColorScheme(history.entries[newIndex].colorScheme);
+    setProfileScheme(history.entries[newIndex].profileScheme);
     setHistory((h) => ({ ...h, index: newIndex }));
   }
   function redo() {
@@ -77,6 +96,7 @@ export default function App() {
     isUndoRedoRef.current = true;
     setShape(history.entries[newIndex].shape);
     setColorScheme(history.entries[newIndex].colorScheme);
+    setProfileScheme(history.entries[newIndex].profileScheme);
     setHistory((h) => ({ ...h, index: newIndex }));
   }
   const canUndo = history.index > 0;
@@ -128,6 +148,24 @@ export default function App() {
     }));
   }
 
+  function fieldCountFor(lengthM: number) {
+    return Math.max(1, Math.ceil(lengthM / MAX_FIELD_LENGTH_M));
+  }
+
+  // Length is the only leg input that changes how many fields the leg
+  // splits into — when it grows past a split point, every NEW field starts
+  // as a copy of the previous last field's pattern (confirmed behavior).
+  function updateLegLength(legIndex: number, newLengthM: number) {
+    const oldCount = fieldCountFor(shape.legs[legIndex].lengthM);
+    const newCount = fieldCountFor(newLengthM);
+    updateLeg(legIndex, (l) => ({ ...l, lengthM: newLengthM }));
+    if (newCount > oldCount) {
+      const newIndexes: number[] = [];
+      for (let f = oldCount; f < newCount; f++) newIndexes.push(f);
+      cloneFieldProfileRules(legIndex, oldCount - 1, legIndex, newIndexes);
+    }
+  }
+
   function setJunction(junctionIndex: number, type: Junction['type']) {
     setShape((prev) => ({
       ...prev,
@@ -136,6 +174,9 @@ export default function App() {
   }
 
   function addLeg() {
+    const lastLegIndex = shape.legs.length - 1;
+    const lastLeg = shape.legs[lastLegIndex];
+    const lastFieldIndex = fieldCountFor(lastLeg.lengthM) - 1;
     setShape((prev) => {
       const last = prev.legs[prev.legs.length - 1];
       return {
@@ -152,6 +193,12 @@ export default function App() {
         junctions: [...prev.junctions, { type: 'straight' }],
       };
     });
+    // New leg = continuation of the shape: its fields inherit the pattern
+    // of the field they extend from (the previous leg's last field).
+    const newLegFieldCount = fieldCountFor(3);
+    const newIndexes: number[] = [];
+    for (let f = 0; f < newLegFieldCount; f++) newIndexes.push(f);
+    cloneFieldProfileRules(lastLegIndex, lastFieldIndex, lastLegIndex + 1, newIndexes);
   }
 
   function removeLastLeg() {
@@ -193,12 +240,128 @@ export default function App() {
     }
   }
 
-  // Seed the picker with the CLICKED board's actual current color, instead
-  // of leaving whatever color was last picked for a different board — that
-  // staleness was its own source of "why did it apply the wrong color".
+  // Same shape as addColorRule, one rule type over — but keyed on STEP
+  // INDEX, not height (height circularly depends on the types being
+  // resolved; index is just the stacking counter). Field-scoped by default,
+  // global only when "apply to all fields" is on, later rules win.
+  function addProfileRule(direction: 'exact' | 'below' | 'above', stepIndex: number, modelId: string, sizeId: string) {
+    if (selection?.kind !== 'board') return;
+    const { legIndex, fieldIndex } = selection;
+    setProfileScheme((prev) => ({
+      ...prev,
+      rules: [
+        ...prev.rules,
+        applyToAllFields
+          ? { stepIndex, modelId, sizeId, direction, scope: 'global' as const }
+          : { stepIndex, modelId, sizeId, direction, scope: 'field' as const, legIndex, fieldIndex },
+      ],
+    }));
+  }
+
+  // A newly created field starts as a continuation of its neighbor: copy
+  // every field-scoped profile rule from the source field onto each new
+  // field index. Confirmed behavior — "design one field, then extend and
+  // the design travels with you", which the interactive tutorial will lean
+  // on as the intended flow.
+  function cloneFieldProfileRules(
+    fromLegIndex: number,
+    fromFieldIndex: number,
+    toLegIndex: number,
+    toFieldIndexes: number[],
+  ) {
+    if (toFieldIndexes.length === 0) return;
+    setProfileScheme((prev) => {
+      const sourceRules = prev.rules.filter(
+        (r) => r.scope === 'field' && r.legIndex === fromLegIndex && r.fieldIndex === fromFieldIndex,
+      );
+      const sourceSpacers = prev.spacerRules.filter(
+        (r) => r.scope === 'field' && r.legIndex === fromLegIndex && r.fieldIndex === fromFieldIndex,
+      );
+      if (sourceRules.length === 0 && sourceSpacers.length === 0) return prev;
+      const clonedRules = toFieldIndexes.flatMap((fieldIndex) =>
+        sourceRules.map((r) => ({ ...r, legIndex: toLegIndex, fieldIndex })),
+      );
+      const clonedSpacers = toFieldIndexes.flatMap((fieldIndex) =>
+        sourceSpacers.map((r) => ({ ...r, legIndex: toLegIndex, fieldIndex })),
+      );
+      return { ...prev, rules: [...prev.rules, ...clonedRules], spacerRules: [...prev.spacerRules, ...clonedSpacers] };
+    });
+  }
+
+  // Spacer sizing (advanced): a multiplier on the spacer BELOW a step,
+  // through the exact same rule machinery — immediate on the clicked step,
+  // below/above as follow-ups, same "apply to all fields" scope.
+  function addSpacerRule(direction: 'exact' | 'below' | 'above', stepIndex: number, multiplier: number) {
+    if (selection?.kind !== 'board') return;
+    const { legIndex, fieldIndex } = selection;
+    setProfileScheme((prev) => ({
+      ...prev,
+      spacerRules: [
+        ...prev.spacerRules,
+        applyToAllFields
+          ? { stepIndex, multiplier, direction, scope: 'global' as const }
+          : { stepIndex, multiplier, direction, scope: 'field' as const, legIndex, fieldIndex },
+      ],
+    }));
+  }
+
+  function pickSpacer(multiplier: number) {
+    setPendingSpacer(multiplier);
+    if (selection?.kind === 'board') {
+      addSpacerRule('exact', selection.stepIndex, multiplier);
+    }
+  }
+
+  // Picking a model resets to that model's first size — same reasoning as
+  // the leg-level "סוג"/"גודל" carousels: a size only makes sense for the
+  // model it belongs to.
+  function pickBoardProfile(modelId: string, sizeId: string) {
+    setPendingModelId(modelId);
+    setPendingSizeId(sizeId);
+    if (selection?.kind === 'board') {
+      addProfileRule('exact', selection.stepIndex, modelId, sizeId);
+    }
+  }
+
+  // Explicit escape hatch: a field with ANY field-scoped profile rule stays
+  // deaf to the leg-level "סוג פרופיל (לכל המקטע)" control for whatever
+  // height range that rule covers — even if you've since repainted every
+  // step back to the same type, since that's still explicit rules, not "no
+  // rules". Repainting to look uniform again doesn't undo that; this does,
+  // on purpose, rather than guessing from the resolved colors/types whether
+  // a field "counts" as still customized.
+  function clearFieldProfile(legIndex: number, fieldIndex: number) {
+    setProfileScheme((prev) => ({
+      ...prev,
+      rules: prev.rules.filter((r) => !(r.scope === 'field' && r.legIndex === legIndex && r.fieldIndex === fieldIndex)),
+      spacerRules: prev.spacerRules.filter(
+        (r) => !(r.scope === 'field' && r.legIndex === legIndex && r.fieldIndex === fieldIndex),
+      ),
+    }));
+  }
+
+  // Seed the pickers with the CLICKED board's actual current color, profile
+  // and spacer, instead of leaving whatever was last picked for a different
+  // board — that staleness was its own source of "why did it apply the
+  // wrong thing". Profile falls back to the leg's own model/size, same
+  // fallback resolveBoardProfile itself uses when no rule matches yet.
   useEffect(() => {
     if (selection?.kind === 'board') {
       setPendingBoardColor(resolveBoardColorHex(colorScheme, selection.legIndex, selection.fieldIndex, selection.heightCm));
+      const leg = shape.legs[selection.legIndex];
+      const resolved = resolveBoardProfile(
+        profileScheme,
+        selection.legIndex,
+        selection.fieldIndex,
+        selection.stepIndex,
+        leg.modelId,
+        leg.sizeId,
+      );
+      setPendingModelId(resolved.modelId);
+      setPendingSizeId(resolved.sizeId);
+      setPendingSpacer(
+        resolveSpacerMultiplier(profileScheme, selection.legIndex, selection.fieldIndex, selection.stepIndex),
+      );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selection]);
@@ -206,7 +369,14 @@ export default function App() {
   return (
     <div className="app">
       <div className="scene-area">
-        <Scene shape={shape} colorScheme={colorScheme} selection={selection} onSelect={setSelection} onStats={setStats} />
+        <Scene
+          shape={shape}
+          colorScheme={colorScheme}
+          profileScheme={profileScheme}
+          selection={selection}
+          onSelect={setSelection}
+          onStats={setStats}
+        />
         <div className="stats-badge">
           <div>{stats.fps} FPS</div>
           <div>{stats.drawCalls} draw calls</div>
@@ -271,7 +441,7 @@ export default function App() {
             </div>
             <div className="bottom-sheet-header">
               <span>
-                שלב נבחר — בגובה {Math.round(selection.heightCm)} ס״מ (רגל {selection.legIndex + 1}, שדה{' '}
+                שלב {selection.stepIndex + 1} — בגובה {Math.round(selection.heightCm)} ס״מ (רגל {selection.legIndex + 1}, שדה{' '}
                 {selection.fieldIndex + 1})
               </span>
               <button className="text-btn" onClick={() => setSelection(null)}>
@@ -281,7 +451,7 @@ export default function App() {
             <div className="bottom-sheet-content">
 
             <div className="carousel-row">
-              <span className="carousel-label">סוג (לרגל זו בלבד)</span>
+              <span className="carousel-label">סוג פרופיל (לכל המקטע)</span>
               <div className="carousel">
                 {FENCE_CATALOG.map((model, i) => (
                   <button
@@ -316,6 +486,112 @@ export default function App() {
                   ),
                 )}
               </div>
+            </div>
+
+            <div className="carousel-row">
+              <div className="carousel-label-row">
+                <span className="carousel-label">פרופיל השלב הזה — לחיצה קובעת מיד רק אותו</span>
+                <label className="group-toggle">
+                  <input
+                    type="checkbox"
+                    checked={applyToAllFields}
+                    onChange={(e) => setApplyToAllFields(e.target.checked)}
+                  />
+                  החל על כל השדות
+                </label>
+              </div>
+              <div className="carousel">
+                {FENCE_CATALOG.map((model, i) => (
+                  <button
+                    key={model.id}
+                    className={pendingModelId === model.id ? 'carousel-item active' : 'carousel-item'}
+                    onClick={() => pickBoardProfile(model.id, model.sizes[0].id)}
+                  >
+                    {model.name ?? `סוג ${i + 1}`}
+                  </button>
+                ))}
+              </div>
+              <div className="carousel" style={{ marginTop: 6 }}>
+                {(FENCE_CATALOG.find((m) => m.id === pendingModelId) ?? FENCE_CATALOG[0]).sizes.map((size) => (
+                  <button
+                    key={size.id}
+                    className={pendingSizeId === size.id ? 'carousel-item active' : 'carousel-item'}
+                    onClick={() => pickBoardProfile(pendingModelId, size.id)}
+                  >
+                    {size.name ?? `${size.boardHeightCm}/${size.spacerHeightCm} ס״מ`}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="split-actions">
+              <button
+                className="text-btn"
+                onClick={() => addProfileRule('below', selection.stepIndex, pendingModelId, pendingSizeId)}
+              >
+                מהשלב הזה ומטה ↓
+              </button>
+              <button
+                className="text-btn"
+                onClick={() => addProfileRule('above', selection.stepIndex, pendingModelId, pendingSizeId)}
+              >
+                מהשלב הזה ומעלה ↑
+              </button>
+              {(profileScheme.rules.some(
+                (r) => r.scope === 'field' && r.legIndex === selection.legIndex && r.fieldIndex === selection.fieldIndex,
+              ) ||
+                profileScheme.spacerRules.some(
+                  (r) =>
+                    r.scope === 'field' && r.legIndex === selection.legIndex && r.fieldIndex === selection.fieldIndex,
+                )) && (
+                <button
+                  className="text-btn"
+                  onClick={() => clearFieldProfile(selection.legIndex, selection.fieldIndex)}
+                >
+                  אפס שדה לברירת המחדל של המקטע ↺
+                </button>
+              )}
+            </div>
+
+            <div className="carousel-row">
+              <button className="text-btn" onClick={() => setShowAdvanced((v) => !v)}>
+                {showAdvanced ? 'אפשרויות מתקדמות ▴' : 'אפשרויות מתקדמות ▾'}
+              </button>
+              {showAdvanced && (
+                <>
+                  <span className="carousel-label" style={{ marginTop: 8 }}>
+                    רווח מתחת לשלב הזה — לחיצה קובעת מיד רק אותו
+                  </span>
+                  <div className="carousel">
+                    {[
+                      { label: 'חצי', value: 0.5 },
+                      { label: 'רגיל', value: 1 },
+                      { label: 'כפול', value: 2 },
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        className={pendingSpacer === opt.value ? 'carousel-item active' : 'carousel-item'}
+                        onClick={() => pickSpacer(opt.value)}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="split-actions">
+                    <button
+                      className="text-btn"
+                      onClick={() => addSpacerRule('below', selection.stepIndex, pendingSpacer)}
+                    >
+                      מהשלב הזה ומטה ↓
+                    </button>
+                    <button
+                      className="text-btn"
+                      onClick={() => addSpacerRule('above', selection.stepIndex, pendingSpacer)}
+                    >
+                      מהשלב הזה ומעלה ↑
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="carousel-row">
@@ -355,7 +631,7 @@ export default function App() {
         )}
       </div>
 
-      <div className="panel">
+      <div className={selection ? 'panel panel-yield-mobile' : 'panel'}>
         <h1>בילדר צורה — גדר פרוצדורלית</h1>
         <p className="hint">
           רגל היא היחידה הבסיסית — לכל רגל גובה חומה קיים וגובה סגירה משלה. הצומת בין כל שתי
@@ -379,7 +655,7 @@ export default function App() {
                   max={20}
                   step={0.5}
                   value={leg.lengthM}
-                  onChange={(e) => updateLeg(legIndex, (l) => ({ ...l, lengthM: Number(e.target.value) }))}
+                  onChange={(e) => updateLegLength(legIndex, Number(e.target.value))}
                 />
               </label>
 

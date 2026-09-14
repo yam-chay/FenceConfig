@@ -366,3 +366,12 @@
   opacity: 0.3;
   cursor: default;
 }
+
+/* While a post/board is selected (zoom-in edit mode), the edit sheet takes
+   over the screen on mobile — the general planning panel steps aside so the
+   two never compete for the same vertical space. */
+@media (max-width: 700px) {
+  .panel.panel-yield-mobile {
+    display: none;
+  }
+}

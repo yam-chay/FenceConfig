@@ -3,12 +3,13 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { layoutShape, type Shape } from '../geometry/shape';
 import { computeBoardStack } from '../geometry/field';
+import { resolveBoardDims } from '../geometry/catalog';
 import { POST_THICKNESS_CM, BOARD_THICKNESS_CM } from '../geometry/constants';
 
 /** What got clicked — a post (color applies to ALL posts) or a board at a given absolute height (color applies via the below/above split). */
 export type Selection =
   | { kind: 'post' }
-  | { kind: 'board'; legIndex: number; fieldIndex: number; heightCm: number };
+  | { kind: 'board'; legIndex: number; fieldIndex: number; heightCm: number; stepIndex: number };
 
 /**
  * One coloring action, in the order it was taken. Later rules override
@@ -53,9 +54,99 @@ export function resolveBoardColorHex(
   return color;
 }
 
+/**
+ * One profile-type action, in the order it was taken — same match semantics
+ * as BoardColorRule ('exact'/'below'/'above', 'field'/'global' scope, later
+ * rules win), but keyed on STEP INDEX instead of height. Color can safely
+ * key on height because it's resolved AFTER geometry is final; profile
+ * cannot, because profile DETERMINES geometry — any height key circularly
+ * depends on the very types being resolved. Step index (0 = bottom board)
+ * is just the stacking walk's loop counter: always known first, matched by
+ * plain integer equality, no epsilon anywhere.
+ */
+export interface BoardProfileRule {
+  stepIndex: number;
+  modelId: string;
+  sizeId: string;
+  direction: 'exact' | 'below' | 'above';
+  scope: 'field' | 'global';
+  legIndex?: number;
+  fieldIndex?: number;
+}
+
+export interface ProfileScheme {
+  rules: BoardProfileRule[];
+  spacerRules: SpacerRule[];
+}
+
+/**
+ * Same rule machinery as BoardProfileRule, but the payload is a multiplier
+ * on the spacer BELOW a step (×1 normal, ×2 double, ×0.5 half, etc.). Step
+ * 0 has no spacer below it, so a rule matching it simply has no effect.
+ */
+export interface SpacerRule {
+  stepIndex: number;
+  multiplier: number;
+  direction: 'exact' | 'below' | 'above';
+  scope: 'field' | 'global';
+  legIndex?: number;
+  fieldIndex?: number;
+}
+
+/** Pure — resolves the spacer multiplier for one step, default ×1. Later rules win, same as everything else. */
+export function resolveSpacerMultiplier(
+  profileScheme: ProfileScheme,
+  legIndex: number,
+  fieldIndex: number,
+  stepIndex: number,
+): number {
+  let multiplier = 1;
+  for (const rule of profileScheme.spacerRules) {
+    if (rule.scope === 'field' && (rule.legIndex !== legIndex || rule.fieldIndex !== fieldIndex)) continue;
+    let matches = false;
+    if (rule.direction === 'exact') matches = rule.stepIndex === stepIndex;
+    else if (rule.direction === 'below') matches = stepIndex <= rule.stepIndex;
+    else matches = stepIndex >= rule.stepIndex;
+    if (matches) multiplier = rule.multiplier;
+  }
+  return multiplier;
+}
+
+/**
+ * Pure — used by Scene to resolve each board's dims while stacking, and by
+ * the panel to seed the type/size carousel with a clicked board's current
+ * profile. `fallbackModelId`/`fallbackSizeId` are the leg's own model/size
+ * (the "סוג פרופיל (לכל המקטע)" / "גודל" carousels) — a passive default a
+ * rule overrides only at the step indices it targets.
+ */
+export function resolveBoardProfile(
+  profileScheme: ProfileScheme,
+  legIndex: number,
+  fieldIndex: number,
+  stepIndex: number,
+  fallbackModelId: string,
+  fallbackSizeId: string,
+): { modelId: string; sizeId: string } {
+  let modelId = fallbackModelId;
+  let sizeId = fallbackSizeId;
+  for (const rule of profileScheme.rules) {
+    if (rule.scope === 'field' && (rule.legIndex !== legIndex || rule.fieldIndex !== fieldIndex)) continue;
+    let matches = false;
+    if (rule.direction === 'exact') matches = rule.stepIndex === stepIndex;
+    else if (rule.direction === 'below') matches = stepIndex <= rule.stepIndex;
+    else matches = stepIndex >= rule.stepIndex;
+    if (matches) {
+      modelId = rule.modelId;
+      sizeId = rule.sizeId;
+    }
+  }
+  return { modelId, sizeId };
+}
+
 interface SceneProps {
   shape: Shape;
   colorScheme: ColorScheme;
+  profileScheme: ProfileScheme;
   /** Controlled — Scene renders a highlight based on this, doesn't just track its own click state. */
   selection: Selection | null;
   onSelect?: (selection: Selection | null) => void;
@@ -85,9 +176,9 @@ const ZOOM_IN_FACTOR = 0.55;
 const ZOOM_OUT_FACTOR = 1.7;
 const FLY_DURATION_MS = 550;
 const CLICK_MOVE_THRESHOLD_PX = 6;
-const FOCUS_ELEMENT_PADDING = 2.2;
+const FOCUS_ELEMENT_PADDING = 1.1; // recent-edit window: closer than full-shape, looser than a single element
 const FOCUS_EDIT_PADDING = 1.7; // recent-edit window: closer than full-shape, looser than a single element
-const FULL_SHAPE_PADDING = 1.35;
+const FULL_SHAPE_PADDING = 1;
 
 function easeInOutQuad(t: number) {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
@@ -123,7 +214,7 @@ function diffFocusLegs(prev: Shape, next: Shape): { legIndices: number[]; resetA
   return null;
 }
 
-export default function Scene({ shape, colorScheme, selection, onSelect, onStats }: SceneProps) {
+export default function Scene({ shape, colorScheme, profileScheme, selection, onSelect, onStats }: SceneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -311,6 +402,7 @@ export default function Scene({ shape, colorScheme, selection, onSelect, onStats
         onSelectRef.current?.({
           kind: 'board',
           heightCm: mesh.userData.heightCm as number,
+          stepIndex: mesh.userData.stepIndex as number,
           legIndex: mesh.userData.legIndex as number,
           fieldIndex: mesh.userData.fieldIndex as number,
         });
@@ -421,8 +513,8 @@ export default function Scene({ shape, colorScheme, selection, onSelect, onStats
       // Kept subtle on purpose — this needs to read as "selected" without
       // hiding the actual color underneath it, since that color is exactly
       // what the person is trying to check by looking at this element.
-      clone.emissive = new THREE.Color(0xffd54a);
-      clone.emissiveIntensity = 0.22;
+      clone.emissive = new THREE.Color(0xd9d9d9);
+      clone.emissiveIntensity = 0.07;
       return clone;
     }
     const postDisplayMat = selection?.kind === 'post' ? withHighlight(postMat) : postMat;
@@ -494,11 +586,34 @@ export default function Scene({ shape, colorScheme, selection, onSelect, onStats
     }
 
     for (const field of layout.fields) {
-      const boardStack = computeBoardStack(field.fillHeightCm, field.boardHeightCm, field.spacerHeightCm);
-      const boardHeightM = field.boardHeightCm / 100;
+      const leg = shape.legs[field.legIndex];
+      // Boards insert into the post's grooves, so they should span face-to-face
+      // between the two bounding posts — field.lengthM is measured post-CENTER
+      // to post-CENTER, so subtracting one full post thickness gives that.
+      // (The old `* 0.96` heuristic wasn't tied to actual post thickness, so
+      // the gap it left grew right along with field length.)
+      const boardLengthM = Math.max(0.05, field.lengthM - postThicknessM);
+      const boardStack = computeBoardStack(field.fillHeightCm, (stepIndex) => {
+        const { modelId, sizeId } = resolveBoardProfile(
+          profileScheme,
+          field.legIndex,
+          field.index,
+          stepIndex,
+          leg.modelId,
+          leg.sizeId,
+        );
+        const dims = resolveBoardDims(modelId, sizeId);
+        const spacerMultiplier = resolveSpacerMultiplier(profileScheme, field.legIndex, field.index, stepIndex);
+        return {
+          modelId,
+          sizeId,
+          boardHeightCm: dims.boardHeightCm,
+          spacerHeightCm: dims.spacerHeightCm * spacerMultiplier,
+        };
+      });
       const baseM = field.baseHeightCm / 100;
-      for (const boardCenterCm of boardStack.boardCenters) {
-        const boardAbsHeightCm = field.baseHeightCm + boardCenterCm;
+      for (const board of boardStack.boards) {
+        const boardAbsHeightCm = field.baseHeightCm + board.centerCm;
         const hex = resolveHex(field.legIndex, field.index, boardAbsHeightCm);
         const isHighlighted =
           selection?.kind === 'board' &&
@@ -506,12 +621,14 @@ export default function Scene({ shape, colorScheme, selection, onSelect, onStats
           selection.fieldIndex === field.index &&
           Math.abs(selection.heightCm - boardAbsHeightCm) < 0.05;
         const mat = isHighlighted ? withHighlight(boardMaterial(hex)) : boardMaterial(hex);
-        const geo = new THREE.BoxGeometry(field.lengthM * 0.96, boardHeightM, boardThicknessM);
+        const boardHeightM = board.boardHeightCm / 100;
+        const geo = new THREE.BoxGeometry(boardLengthM, boardHeightM, boardThicknessM);
         const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(field.position.x, baseM + boardCenterCm / 100, field.position.z);
+        mesh.position.set(field.position.x, baseM + board.centerCm / 100, field.position.z);
         mesh.rotation.y = -field.heading;
         mesh.userData.kind = 'board';
         mesh.userData.heightCm = boardAbsHeightCm;
+        mesh.userData.stepIndex = board.stepIndex;
         mesh.userData.legIndex = field.legIndex;
         mesh.userData.fieldIndex = field.index;
         fenceGroup.add(mesh);
@@ -572,7 +689,7 @@ export default function Scene({ shape, colorScheme, selection, onSelect, onStats
       radius: Math.max(Math.sqrt((fMaxX - fMinX) ** 2 + (fMaxZ - fMinZ) ** 2 + fTopM ** 2) / 2, 1.5),
     };
     flyTo(focusTarget, FOCUS_EDIT_PADDING, { relativeToCurrent: true, preserveAngle: !focusDiff.resetAngle });
-  }, [shape, colorScheme, selection]);
+  }, [shape, colorScheme, profileScheme, selection]);
 
   return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />;
 }
