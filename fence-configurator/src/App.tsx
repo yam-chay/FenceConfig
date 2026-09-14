@@ -231,12 +231,34 @@ export default function App() {
     }));
   }
 
-  // Clicking a swatch paints just the clicked board immediately — below/above
-  // are follow-up actions to extend from there, not required first steps.
+  // Paints every step in a multi-selection at once, one rule per step (each
+  // keyed by ITS OWN height — color is height-keyed, and mixed-profile steps
+  // don't share a height, so the anchor's height alone isn't enough here).
+  function addColorRuleForSteps(stepIndices: number[], colorHex: string) {
+    if (selection?.kind !== 'board') return;
+    const { legIndex, fieldIndex } = selection;
+    setColorScheme((prev) => ({
+      ...prev,
+      boardRules: [
+        ...prev.boardRules,
+        ...stepIndices.map((stepIndex) => {
+          const heightCm = selection.stepHeights[stepIndex] ?? selection.heightCm;
+          return applyToAllFields
+            ? { heightCm, colorHex, direction: 'exact' as const, scope: 'global' as const }
+            : { heightCm, colorHex, direction: 'exact' as const, scope: 'field' as const, legIndex, fieldIndex };
+        }),
+      ],
+    }));
+  }
+
+  // Clicking a swatch paints the whole current selection immediately — a
+  // single step by default, every step in a range/multi-selection when one
+  // is active. below/above are follow-up actions to extend from the edges
+  // of that selection, not required first steps.
   function pickBoardColor(hex: string) {
     setPendingBoardColor(hex);
     if (selection?.kind === 'board') {
-      addColorRule('exact', selection.heightCm, hex);
+      addColorRuleForSteps(selection.stepIndices, hex);
     }
   }
 
@@ -254,6 +276,24 @@ export default function App() {
         applyToAllFields
           ? { stepIndex, modelId, sizeId, direction, scope: 'global' as const }
           : { stepIndex, modelId, sizeId, direction, scope: 'field' as const, legIndex, fieldIndex },
+      ],
+    }));
+  }
+
+  // Same idea as addColorRuleForSteps: one 'exact' rule per selected step —
+  // trivial here since profile is index-keyed, no per-step lookup needed.
+  function addProfileRuleForSteps(stepIndices: number[], modelId: string, sizeId: string) {
+    if (selection?.kind !== 'board') return;
+    const { legIndex, fieldIndex } = selection;
+    setProfileScheme((prev) => ({
+      ...prev,
+      rules: [
+        ...prev.rules,
+        ...stepIndices.map((stepIndex) =>
+          applyToAllFields
+            ? { stepIndex, modelId, sizeId, direction: 'exact' as const, scope: 'global' as const }
+            : { stepIndex, modelId, sizeId, direction: 'exact' as const, scope: 'field' as const, legIndex, fieldIndex },
+        ),
       ],
     }));
   }
@@ -305,10 +345,26 @@ export default function App() {
     }));
   }
 
+  function addSpacerRuleForSteps(stepIndices: number[], multiplier: number) {
+    if (selection?.kind !== 'board') return;
+    const { legIndex, fieldIndex } = selection;
+    setProfileScheme((prev) => ({
+      ...prev,
+      spacerRules: [
+        ...prev.spacerRules,
+        ...stepIndices.map((stepIndex) =>
+          applyToAllFields
+            ? { stepIndex, multiplier, direction: 'exact' as const, scope: 'global' as const }
+            : { stepIndex, multiplier, direction: 'exact' as const, scope: 'field' as const, legIndex, fieldIndex },
+        ),
+      ],
+    }));
+  }
+
   function pickSpacer(multiplier: number) {
     setPendingSpacer(multiplier);
     if (selection?.kind === 'board') {
-      addSpacerRule('exact', selection.stepIndex, multiplier);
+      addSpacerRuleForSteps(selection.stepIndices, multiplier);
     }
   }
 
@@ -319,7 +375,7 @@ export default function App() {
     setPendingModelId(modelId);
     setPendingSizeId(sizeId);
     if (selection?.kind === 'board') {
-      addProfileRule('exact', selection.stepIndex, modelId, sizeId);
+      addProfileRuleForSteps(selection.stepIndices, modelId, sizeId);
     }
   }
 
@@ -441,7 +497,10 @@ export default function App() {
             </div>
             <div className="bottom-sheet-header">
               <span>
-                שלב {selection.stepIndex + 1} — בגובה {Math.round(selection.heightCm)} ס״מ (רגל {selection.legIndex + 1}, שדה{' '}
+                {selection.stepIndices.length > 1
+                  ? `עריכת שלבים — ${selection.stepIndices.length} שלבים נבחרו`
+                  : `שלב ${selection.stepIndex + 1} — בגובה ${Math.round(selection.heightCm)} ס״מ`}{' '}
+                (רגל {selection.legIndex + 1}, שדה{' '}
                 {selection.fieldIndex + 1})
               </span>
               <button className="text-btn" onClick={() => setSelection(null)}>
@@ -526,13 +585,13 @@ export default function App() {
             <div className="split-actions">
               <button
                 className="text-btn"
-                onClick={() => addProfileRule('below', selection.stepIndex, pendingModelId, pendingSizeId)}
+                onClick={() => addProfileRule('below', Math.min(...selection.stepIndices), pendingModelId, pendingSizeId)}
               >
                 מהשלב הזה ומטה ↓
               </button>
               <button
                 className="text-btn"
-                onClick={() => addProfileRule('above', selection.stepIndex, pendingModelId, pendingSizeId)}
+                onClick={() => addProfileRule('above', Math.max(...selection.stepIndices), pendingModelId, pendingSizeId)}
               >
                 מהשלב הזה ומעלה ↑
               </button>
@@ -579,13 +638,13 @@ export default function App() {
                   <div className="split-actions">
                     <button
                       className="text-btn"
-                      onClick={() => addSpacerRule('below', selection.stepIndex, pendingSpacer)}
+                      onClick={() => addSpacerRule('below', Math.min(...selection.stepIndices), pendingSpacer)}
                     >
                       מהשלב הזה ומטה ↓
                     </button>
                     <button
                       className="text-btn"
-                      onClick={() => addSpacerRule('above', selection.stepIndex, pendingSpacer)}
+                      onClick={() => addSpacerRule('above', Math.max(...selection.stepIndices), pendingSpacer)}
                     >
                       מהשלב הזה ומעלה ↑
                     </button>
@@ -619,10 +678,28 @@ export default function App() {
               </div>
             </div>
             <div className="split-actions">
-              <button className="text-btn" onClick={() => addColorRule('below', selection.heightCm, pendingBoardColor)}>
+              <button
+                className="text-btn"
+                onClick={() =>
+                  addColorRule(
+                    'below',
+                    selection.stepHeights[Math.min(...selection.stepIndices)] ?? selection.heightCm,
+                    pendingBoardColor,
+                  )
+                }
+              >
                 מהשלב הזה ומטה ↓
               </button>
-              <button className="text-btn" onClick={() => addColorRule('above', selection.heightCm, pendingBoardColor)}>
+              <button
+                className="text-btn"
+                onClick={() =>
+                  addColorRule(
+                    'above',
+                    selection.stepHeights[Math.max(...selection.stepIndices)] ?? selection.heightCm,
+                    pendingBoardColor,
+                  )
+                }
+              >
                 מהשלב הזה ומעלה ↑
               </button>
             </div>

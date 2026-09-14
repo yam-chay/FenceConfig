@@ -9,7 +9,15 @@ import { POST_THICKNESS_CM, BOARD_THICKNESS_CM } from '../geometry/constants';
 /** What got clicked — a post (color applies to ALL posts) or a board at a given absolute height (color applies via the below/above split). */
 export type Selection =
   | { kind: 'post' }
-  | { kind: 'board'; legIndex: number; fieldIndex: number; heightCm: number; stepIndex: number };
+  | {
+      kind: 'board';
+      legIndex: number;
+      fieldIndex: number;
+      heightCm: number;
+      stepIndex: number;
+      stepIndices: number[];
+      stepHeights: Record<number, number>;
+    };
 
 /**
  * One coloring action, in the order it was taken. Later rules override
@@ -176,9 +184,9 @@ const ZOOM_IN_FACTOR = 0.55;
 const ZOOM_OUT_FACTOR = 1.7;
 const FLY_DURATION_MS = 550;
 const CLICK_MOVE_THRESHOLD_PX = 6;
-const FOCUS_ELEMENT_PADDING = 1.1; // recent-edit window: closer than full-shape, looser than a single element
-const FOCUS_EDIT_PADDING = 1.7; // recent-edit window: closer than full-shape, looser than a single element
-const FULL_SHAPE_PADDING = 1;
+const FOCUS_ELEMENT_PADDING = 1.15; // close zoom-in when selecting a step/post — tight enough to actually see it without manual zooming
+const FOCUS_EDIT_PADDING = 1.7; // recent-edit window: closer than full-shape, looser than a single element — reused below for the deselect case too
+const FULL_SHAPE_PADDING = 1.35;
 
 function easeInOutQuad(t: number) {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
@@ -188,8 +196,14 @@ function easeInOutQuad(t: number) {
 function diffFocusLegs(prev: Shape, next: Shape): { legIndices: number[]; resetAngle: boolean } | null {
   if (next.legs.length !== prev.legs.length) {
     const idx = next.legs.length - 1;
+    const added = next.legs.length > prev.legs.length;
     return {
-      legIndices: [idx - 1, idx].filter((i) => i >= 0 && i < next.legs.length),
+      // Adding a leg: frame ONLY the new leg. Including the neighbor too
+      // meant the camera pulled back to fit whichever of the two was
+      // longer — irrelevant to what you actually want to see right after
+      // adding one. Removing a leg has no single "new" leg to isolate, so
+      // that case keeps framing both sides of the removal point for context.
+      legIndices: (added ? [idx] : [idx - 1, idx]).filter((i) => i >= 0 && i < next.legs.length),
       resetAngle: true, // adding/removing a leg — "return to default" case
     };
   }
@@ -225,10 +239,13 @@ export default function Scene({ shape, colorScheme, profileScheme, selection, on
   onStatsRef.current = onStats;
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
+  const selectionRef = useRef(selection);
+  selectionRef.current = selection;
   const geometryStatsRef = useRef({ boardCount: 0, postCount: 0, doublePostCount: 0 });
 
   const shapeBoundsRef = useRef<FrameTarget>({ centerX: 4, centerY: 0.8, centerZ: 0, radius: 4 });
   const prevShapeRef = useRef<Shape | null>(null);
+  const prevSelectionRef = useRef<Selection | null>(null);
   const lastFrameTargetRef = useRef<FrameTarget | null>(null);
   const lastPaddingRef = useRef(FULL_SHAPE_PADDING);
   const flyRef = useRef<null | {
@@ -372,6 +389,40 @@ export default function Scene({ shape, colorScheme, profileScheme, selection, on
     scene.add(fenceGroup);
 
     const raycaster = new THREE.Raycaster();
+
+    function boundsForSteps(
+      legIndex: number,
+      fieldIndex: number,
+      stepIndices: number[],
+    ): { target: FrameTarget; heights: Record<number, number> } | null {
+      const matches = fenceGroup.children.filter(
+        (c) =>
+          c.userData.kind === 'board' &&
+          c.userData.legIndex === legIndex &&
+          c.userData.fieldIndex === fieldIndex &&
+          stepIndices.includes(c.userData.stepIndex),
+      ) as THREE.Mesh[];
+      if (matches.length === 0) return null;
+      let minY = Infinity;
+      let maxY = -Infinity;
+      let x = 0;
+      let z = 0;
+      const heights: Record<number, number> = {};
+      matches.forEach((m) => {
+        m.geometry.computeBoundingSphere();
+        const r = m.geometry.boundingSphere ? m.geometry.boundingSphere.radius : 0.2;
+        minY = Math.min(minY, m.position.y - r);
+        maxY = Math.max(maxY, m.position.y + r);
+        x = m.position.x;
+        z = m.position.z;
+        heights[m.userData.stepIndex as number] = m.userData.heightCm as number;
+      });
+      return {
+        target: { centerX: x, centerY: (minY + maxY) / 2, centerZ: z, radius: Math.max((maxY - minY) / 2, 0.25) },
+        heights,
+      };
+    }
+
     const handlePointerDown = (e: PointerEvent) => {
       pointerDownRef.current = { x: e.clientX, y: e.clientY };
     };
@@ -396,26 +447,91 @@ export default function Scene({ shape, colorScheme, profileScheme, selection, on
 
       const mesh = hits[0].object as THREE.Mesh;
       const kind = mesh.userData.kind as 'post' | 'board' | undefined;
+
       if (kind === 'post') {
         onSelectRef.current?.({ kind: 'post' });
-      } else if (kind === 'board') {
-        onSelectRef.current?.({
-          kind: 'board',
-          heightCm: mesh.userData.heightCm as number,
-          stepIndex: mesh.userData.stepIndex as number,
-          legIndex: mesh.userData.legIndex as number,
-          fieldIndex: mesh.userData.fieldIndex as number,
-        });
+        mesh.geometry.computeBoundingSphere();
+        const sphere = mesh.geometry.boundingSphere;
+        const radius = Math.max(sphere ? sphere.radius : 0.3, 0.25);
+        flyTo(
+          { centerX: mesh.position.x, centerY: mesh.position.y, centerZ: mesh.position.z, radius },
+          FOCUS_ELEMENT_PADDING,
+          { preserveAngle: true },
+        );
+        return;
+      }
+      if (kind !== 'board') return;
+
+      const legIndex = mesh.userData.legIndex as number;
+      const fieldIndex = mesh.userData.fieldIndex as number;
+      const stepIndex = mesh.userData.stepIndex as number;
+      const heightCm = mesh.userData.heightCm as number;
+
+      const prevSel = selectionRef.current;
+      const sameField = prevSel?.kind === 'board' && prevSel.legIndex === legIndex && prevSel.fieldIndex === fieldIndex;
+      // pointerType is what actually generated THIS click ('mouse' | 'touch' | 'pen') —
+      // unlike matchMedia('pointer: coarse'), which asks what the device is CAPABLE of
+      // and can misreport on hybrid touchscreen laptops even for a real mouse click.
+      const isTouchEvent = e.pointerType === 'touch' || e.pointerType === 'pen';
+      const ctrlKey = e.ctrlKey || e.metaKey;
+      // No modifier keys exist on touch, so a second tap within the same
+      // field IS the range gesture there — shift does the same on desktop.
+      const rangeGesture = sameField && (e.shiftKey || (isTouchEvent && !ctrlKey));
+
+      let stepIndices: number[];
+      if (rangeGesture) {
+        const lo = Math.min((prevSel as Extract<Selection, { kind: 'board' }>).stepIndex, stepIndex);
+        const hi = Math.max((prevSel as Extract<Selection, { kind: 'board' }>).stepIndex, stepIndex);
+        stepIndices = [];
+        for (let i = lo; i <= hi; i++) stepIndices.push(i);
+      } else if (sameField && ctrlKey) {
+        const current = new Set((prevSel as Extract<Selection, { kind: 'board' }>).stepIndices);
+        if (current.has(stepIndex)) current.delete(stepIndex);
+        else current.add(stepIndex);
+        if (current.size === 0) {
+          onSelectRef.current?.(null);
+          return;
+        }
+        stepIndices = Array.from(current).sort((a, b) => a - b);
+      } else {
+        stepIndices = [stepIndex];
       }
 
-      mesh.geometry.computeBoundingSphere();
-      const sphere = mesh.geometry.boundingSphere;
-      const radius = Math.max(sphere ? sphere.radius : 0.3, 0.25);
-      flyTo(
-        { centerX: mesh.position.x, centerY: mesh.position.y, centerZ: mesh.position.z, radius },
-        FOCUS_ELEMENT_PADDING,
-        { preserveAngle: true },
-      );
+      const isExtending = rangeGesture || (sameField && ctrlKey);
+
+      const result = stepIndices.length > 1 ? boundsForSteps(legIndex, fieldIndex, stepIndices) : null;
+      if (result) {
+        onSelectRef.current?.({
+          kind: 'board',
+          legIndex,
+          fieldIndex,
+          heightCm,
+          stepIndex,
+          stepIndices,
+          stepHeights: result.heights,
+        });
+        if (!isExtending) flyTo(result.target, FOCUS_ELEMENT_PADDING, { preserveAngle: true });
+      } else {
+        onSelectRef.current?.({
+          kind: 'board',
+          legIndex,
+          fieldIndex,
+          heightCm,
+          stepIndex,
+          stepIndices,
+          stepHeights: { [stepIndex]: heightCm },
+        });
+        if (!isExtending) {
+          mesh.geometry.computeBoundingSphere();
+          const sphere = mesh.geometry.boundingSphere;
+          const radius = Math.max(sphere ? sphere.radius : 0.3, 0.25);
+          flyTo(
+            { centerX: mesh.position.x, centerY: mesh.position.y, centerZ: mesh.position.z, radius },
+            FOCUS_ELEMENT_PADDING,
+            { preserveAngle: true },
+          );
+        }
+      }
     };
     renderer.domElement.addEventListener('pointerdown', handlePointerDown);
     renderer.domElement.addEventListener('pointerup', handlePointerUp);
@@ -619,7 +735,7 @@ export default function Scene({ shape, colorScheme, profileScheme, selection, on
           selection?.kind === 'board' &&
           selection.legIndex === field.legIndex &&
           selection.fieldIndex === field.index &&
-          Math.abs(selection.heightCm - boardAbsHeightCm) < 0.05;
+          selection.stepIndices.includes(board.stepIndex);
         const mat = isHighlighted ? withHighlight(boardMaterial(hex)) : boardMaterial(hex);
         const boardHeightM = board.boardHeightCm / 100;
         const geo = new THREE.BoxGeometry(boardLengthM, boardHeightM, boardThicknessM);
@@ -660,9 +776,32 @@ export default function Scene({ shape, colorScheme, profileScheme, selection, on
 
     if (isFirstBuild) {
       snapTo(fullBounds, FULL_SHAPE_PADDING);
+      prevSelectionRef.current = selection;
       return;
     }
+
+    const hadSelection = prevSelectionRef.current !== null;
+    const hasSelection = selection !== null;
+    prevSelectionRef.current = selection;
+
     if (focusDiff === null) {
+      // Closing an edit sheet (selection -> null) with no shape change: step
+      // back to a window around wherever you were just focused — NOT the
+      // whole shape. Framing the entire shape here was exactly what made
+      // this worse the longer the fence got (and on a background click by
+      // mistake, it read as being launched away with no sense of where you'd
+      // even been). Reusing the last focused target with the "recent-edit"
+      // padding keeps you oriented locally regardless of overall fence size.
+      if (hadSelection && !hasSelection) {
+        // Keep the current angle rather than snapping to the default one —
+        // stepping back from the same viewpoint you were already at reads
+        // as a small, continuous move, and makes it easy to mentally retrace
+        // your way back to the step you were just on.
+        flyTo(lastFrameTargetRef.current ?? fullBounds, FOCUS_EDIT_PADDING, {
+          relativeToCurrent: false,
+          preserveAngle: true,
+        });
+      }
       return;
     }
 
@@ -688,7 +827,19 @@ export default function Scene({ shape, colorScheme, profileScheme, selection, on
       centerZ: (fMinZ + fMaxZ) / 2,
       radius: Math.max(Math.sqrt((fMaxX - fMinX) ** 2 + (fMaxZ - fMinZ) ** 2 + fTopM ** 2) / 2, 1.5),
     };
-    flyTo(focusTarget, FOCUS_EDIT_PADDING, { relativeToCurrent: true, preserveAngle: !focusDiff.resetAngle });
+    // relativeToCurrent mirrors resetAngle, same as preserveAngle already
+    // did: a structural change (leg added, junction changed) frames its OWN
+    // natural distance for whatever it's newly focusing on. Reusing the
+    // camera's current zoom RATIO only makes sense when the old and new
+    // focus targets are similar in scale (an incremental slider edit on the
+    // same leg) — applying it to a resetAngle case compounds badly whenever
+    // the new target (e.g. just the last two legs) is a very different size
+    // than whatever was framed before, which is exactly the "flies even
+    // further away when already zoomed out" symptom.
+    flyTo(focusTarget, FOCUS_EDIT_PADDING, {
+      relativeToCurrent: !focusDiff.resetAngle,
+      preserveAngle: !focusDiff.resetAngle,
+    });
   }, [shape, colorScheme, profileScheme, selection]);
 
   return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />;
