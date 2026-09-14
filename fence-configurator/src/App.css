@@ -57,6 +57,7 @@
 .panel h1 {
   font-size: 18px;
   margin-bottom: 8px;
+  color: #000000;
 }
 
 .hint {
@@ -289,7 +290,7 @@
 .carousel-item {
   flex: 0 0 auto;
   border: 1px solid #d5d5d5;
-  background: #fff;
+  background: #a09e9e;
   border-radius: 8px;
   padding: 8px 14px;
   font-size: 13px;
