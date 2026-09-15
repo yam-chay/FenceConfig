@@ -17,11 +17,11 @@
 /** Height eaten at the post's base by the rosette — boards start above this, not at wall height 0. */
 export const ROSETTE_OFFSET_CM = 2;
 /** Margin at the top/bottom of the board stack inside the groove. */
-export const END_MARGIN_CM = 5.75;
+export const END_MARGIN_CM = 0;
 /** Margin used mid-field in the client's field-count formula. */
 export const MIDDLE_MARGIN_CM = 4;
 /** Longest span a single field (post-to-post) can be before it must split into another field. */
-export const MAX_FIELD_LENGTH_M = 2;
+export const MAX_FIELD_LENGTH_M = 1.5;
 /** Spacer width, matches SPACER_HEIGHT_CM (same part, used between boards and between chained posts). */
 export const SPACER_WIDTH_CM = 1;
 

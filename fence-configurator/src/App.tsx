@@ -3,13 +3,17 @@ import Scene, {
   type ColorScheme,
   type ProfileScheme,
   type Selection,
+  type BoardColorRule,
+  type BoardProfileRule,
+  type SpacerRule,
   resolveBoardColorHex,
   resolveBoardProfile,
   resolveSpacerMultiplier,
 } from './scene/Scene';
 import type { Shape, Leg, Junction } from './geometry/shape';
-import { DEFAULT_MODEL_ID, DEFAULT_SIZE_ID, FENCE_CATALOG } from './geometry/catalog';
+import { DEFAULT_MODEL_ID, DEFAULT_SIZE_ID, FENCE_CATALOG, resolveBoardDims } from './geometry/catalog';
 import { MAX_FIELD_LENGTH_M } from './geometry/constants';
+import { computeBoardStack } from './geometry/field';
 import './App.css';
 
 const FENCE_COLORS = [
@@ -45,60 +49,216 @@ function defaultProfileScheme(): ProfileScheme {
   return { rules: [], spacerRules: [] };
 }
 
-/**
- * A slider whose main handle stays at its normal step (0.5m, 5cm, whatever
- * the caller passes), plus an optional fine offset — hundredths of the
- * unit, toggled on/off. `value` is the FULL effective number (what's
- * actually stored on the leg); `hundredths`/`precisionOn` are the caller's
- * own state for this field. The coarse position shown on the slider is
- * reconstructed as value minus whatever fine offset is currently applied,
- * so the two can't drift apart.
- */
+/** Rounds to the given number of decimals — the one shared guard behind
+ * every "no more than N digits after the point" constraint below. */
+function roundToDecimals(n: number, decimals: number): number {
+  const factor = 10 ** decimals;
+  return Math.round(n * factor) / factor;
+}
+
+/** Formats to `decimals` places, then trims trailing zeros (and a bare
+ * trailing dot) so a whole number reads as "6", not "6.000". */
+function formatTrimmed(n: number, decimals: number): string {
+  return n.toFixed(decimals).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+}
+
+/** Applied to a free-typed decimal field on every keystroke — truncates
+ * anything past `maxDecimals` digits after the point, so it's never
+ * possible to type a second/third decimal digit in the first place. */
+function clampDecimalString(raw: string, maxDecimals: number): string {
+  const dot = raw.indexOf('.');
+  if (dot === -1) return raw;
+  return raw.slice(0, dot + 1 + maxDecimals);
+}
+
 function PrecisionSlider({
+  mode,
   label,
-  unit,
   min,
   max,
   step,
   value,
-  hundredths,
+  fineValue,
   precisionOn,
   onChangeValue,
-  onChangeHundredths,
+  onChangeFineValue,
   onTogglePrecision,
+  onFineAdjust,
   className,
 }: {
+  mode: 'length' | 'height';
   label: string;
-  unit: string;
   min: number;
   max: number;
   step: number;
   value: number;
-  hundredths: number;
+  /** Raw fine number, already in the fine control's own unit — cm (0–99.9) for length, cm (0–0.9) for height. */
+  fineValue: number;
   precisionOn: boolean;
   onChangeValue: (v: number) => void;
-  onChangeHundredths: (h: number) => void;
+  onChangeFineValue: (f: number) => void;
   onTogglePrecision: (on: boolean) => void;
+  /** Called right before a fine (drag/stepper/toggle) change — NOT before a
+   * normal coarse slider drag and NOT before a header edit — so the caller
+   * can suppress side effects (like camera reframing) that make sense for a
+   * real drag but not for a tiny precision nudge. */
+  onFineAdjust?: () => void;
   className?: string;
 }) {
-  const appliedFine = precisionOn ? hundredths / 100 : 0;
-  const coarse = value - appliedFine;
-  const displayValue = precisionOn ? value.toFixed(2) : (Math.round(coarse * 100) / 100).toString();
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorPrimary, setEditorPrimary] = useState('0'); // length: whole meters · height: full cm.d value
+  const [editorSecondary, setEditorSecondary] = useState('0'); // length only: cm.d
+  const primaryInputRef = useRef<HTMLInputElement | null>(null);
 
-  function setHundredths(h: number) {
-    const clamped = Math.max(0, Math.min(99, Math.round(h)));
-    onChangeHundredths(clamped);
-    onChangeValue(coarse + (precisionOn ? clamped / 100 : 0));
+  const fineToMain = mode === 'length' ? 0.01 : 1; // cm -> m for length; cm -> cm (identity) for height
+  const mainUnit = mode === 'length' ? 'מ׳' : 'ס״מ';
+  const fineMax = mode === 'length' ? 99.9 : 0.9;
+  const fineStep = 0.1;
+
+  const appliedFine = precisionOn ? fineValue * fineToMain : 0;
+  const coarse = value - appliedFine;
+  const displayValue =
+    mode === 'length' ? formatTrimmed(value, 3) : formatTrimmed(precisionOn ? value : coarse, 1);
+
+  function setFine(f: number) {
+    const clamped = Math.max(0, Math.min(fineMax, roundToDecimals(f, 1)));
+    onFineAdjust?.();
+    onChangeFineValue(clamped);
+    onChangeValue(coarse + (precisionOn ? clamped * fineToMain : 0));
   }
 
   function toggle(on: boolean) {
+    onFineAdjust?.();
     onTogglePrecision(on);
-    onChangeValue(coarse + (on ? hundredths / 100 : 0));
+    onChangeValue(coarse + (on ? fineValue * fineToMain : 0));
   }
 
+  function openEditor() {
+    if (mode === 'length') {
+      const whole = Math.floor(value);
+      const cm = Math.max(0, Math.min(99.9, roundToDecimals((value - whole) * 100, 1)));
+      setEditorPrimary(String(whole));
+      setEditorSecondary(cm.toFixed(1));
+    } else {
+      setEditorPrimary(value.toFixed(1));
+    }
+    setEditorOpen(true);
+  }
+
+  // Focus + select the first field the instant the popover mounts, so the
+  // very next keystroke overwrites the pre-filled value outright — no
+  // click-and-delete, no double-click, no cursor dragging.
+  useEffect(() => {
+    if (editorOpen) {
+      primaryInputRef.current?.focus();
+      primaryInputRef.current?.select();
+    }
+  }, [editorOpen]);
+
+  function applyEditor() {
+    if (mode === 'length') {
+      const whole = Math.max(0, Math.floor(Number(editorPrimary) || 0));
+      const cm = Math.max(0, Math.min(99.9, roundToDecimals(Number(editorSecondary) || 0, 1)));
+      onChangeFineValue(cm);
+      onTogglePrecision(true);
+      onChangeValue(whole + cm / 100);
+    } else {
+      const raw = Math.max(min, Math.min(max + 0.9, roundToDecimals(Number(editorPrimary) || 0, 1)));
+      const whole = Math.floor(raw);
+      const tenth = Math.min(0.9, roundToDecimals(raw - whole, 1));
+      onChangeFineValue(tenth);
+      onTogglePrecision(true);
+      onChangeValue(raw);
+    }
+    setEditorOpen(false);
+  }
+
+  function handleEditorKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Enter') applyEditor();
+    else if (e.key === 'Escape') setEditorOpen(false);
+  }
+
+  const editorHint =
+    mode === 'length'
+      ? 'מטרים: מספר שלם · סנטימטרים: 0–99.9, עד ספרה אחת אחרי הנקודה'
+      : `טווח ${formatTrimmed(min, 1)}–${formatTrimmed(max + 0.9, 1)} ס״מ, עד ספרה אחת אחרי הנקודה`;
+
   return (
-    <label className={className}>
-      {label}: {displayValue} {unit}
+    <div className={className}>
+      <button
+        type="button"
+        className="value-trigger"
+        onClick={openEditor}
+        title="הזנה ידנית"
+        aria-label={`הזנה ידנית — ${label}`}
+      >
+        {label}: {displayValue} {mainUnit}
+      </button>
+
+      {editorOpen && (
+        <>
+          <div className="value-popover-backdrop" onClick={() => setEditorOpen(false)} />
+          <div className="value-popover" onKeyDown={handleEditorKeyDown} role="dialog" aria-label={`הזנה ידנית — ${label}`}>
+            <div className="value-popover-title">{label} — הזנה ידנית</div>
+            <div className="value-popover-fields">
+              {mode === 'length' ? (
+                <>
+                  <span className="value-popover-field-group">
+                    <input
+                      ref={primaryInputRef}
+                      type="number"
+                      min={0}
+                      step={1}
+                      className="value-popover-input"
+                      value={editorPrimary}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => setEditorPrimary(e.target.value)}
+                    />
+                    <span className="value-popover-unit">מ׳</span>
+                  </span>
+                  <span className="value-popover-field-group">
+                    <input
+                      type="number"
+                      min={0}
+                      max={99.9}
+                      step={0.1}
+                      className="value-popover-input"
+                      value={editorSecondary}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => setEditorSecondary(clampDecimalString(e.target.value, 1))}
+                    />
+                    <span className="value-popover-unit">ס״מ</span>
+                  </span>
+                </>
+              ) : (
+                <span className="value-popover-field-group">
+                  <input
+                    ref={primaryInputRef}
+                    type="number"
+                    min={0}
+                    step={0.1}
+                    className="value-popover-input"
+                    value={editorPrimary}
+                    onFocus={(e) => e.target.select()}
+                    onChange={(e) => setEditorPrimary(clampDecimalString(e.target.value, 1))}
+                  />
+                  <span className="value-popover-unit">ס״מ</span>
+                </span>
+              )}
+            </div>
+            <div className="value-popover-hint">{editorHint}</div>
+            <div className="value-popover-actions">
+              <button type="button" className="value-popover-apply" onClick={applyEditor}>
+                החל
+              </button>
+              <button type="button" className="value-popover-cancel" onClick={() => setEditorOpen(false)}>
+                ביטול
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
       <input
         type="range"
         min={min}
@@ -113,23 +273,19 @@ function PrecisionSlider({
         </button>
         {precisionOn && (
           <span className="precision-input">
-            <button type="button" onClick={() => setHundredths(hundredths - 1)}>
-              −
-            </button>
             <input
-              type="number"
+              type="range"
               min={0}
-              max={99}
-              value={hundredths}
-              onChange={(e) => setHundredths(Number(e.target.value))}
+              max={fineMax}
+              step={fineStep}
+              value={fineValue}
+              onChange={(e) => setFine(Number(e.target.value))}
             />
-            <button type="button" onClick={() => setHundredths(hundredths + 1)}>
-              +
-            </button>
+            <span className="fine-readout">{fineValue.toFixed(1)} ס״מ</span>
           </span>
         )}
       </div>
-    </label>
+    </div>
   );
 }
 
@@ -146,6 +302,38 @@ export default function App() {
   const [sheetHeight, setSheetHeight] = useState(260);
   const dragStartRef = useRef<{ startY: number; startHeight: number } | null>(null);
 
+  // "החל על כל הגדר" feedback: a toast with an immediate undo (which just
+  // calls the existing undo() below — the action already lands as one
+  // normal history entry, same as any other edit), an extra clarification
+  // line shown only the first time it's ever used this session, and a brief
+  // pulse on the corner undo button run in parallel with the toast.
+  const [applyFenceToast, setApplyFenceToast] = useState<{ showHint: boolean } | null>(null);
+  const [hasShownApplyFenceHint, setHasShownApplyFenceHint] = useState(false);
+  const [undoPulse, setUndoPulse] = useState(false);
+  const applyFenceToastTimeoutRef = useRef<number | null>(null);
+  const undoPulseTimeoutRef = useRef<number | null>(null);
+
+  // Leg accordion: which legs are expanded to full edit mode (a closed leg
+  // shows only a one-line summary). More than one can be open at once —
+  // opening never closes another. Leg 0 starts open since that's the only
+  // leg a fresh project has.
+  const [expandedLegIndices, setExpandedLegIndices] = useState<Set<number>>(() => new Set([0]));
+  const legRefs = useRef<Record<number, HTMLDivElement | null>>({});
+  const legFocusNonceRef = useRef(0);
+  // Fires the leg-level camera fly-to in Scene — only set when a leg's
+  // header is clicked OPEN from the panel (never on collapse, never on a
+  // scene click, which already has its own tight element-level zoom).
+  const [legCameraFocus, setLegCameraFocus] = useState<{ legIndex: number; nonce: number } | null>(null);
+  // Tracks which leg the panel last auto-scrolled to, so a scene click that
+  // stays within the same leg (extending a multi/range step selection)
+  // doesn't re-trigger a scroll jump every time.
+  const lastAutoScrolledLegRef = useRef<number | null>(null);
+  // Set to true right before a fine-precision nudge changes a leg value, so
+  // Scene's camera-reframing effect skips just that one update — a tiny
+  // hundredths adjustment shouldn't fly the camera around the way a real
+  // slider drag legitimately does.
+  const skipNextFocusRef = useRef(false);
+
   // Fine-precision state for the three leg sliders (length/base
   // height/closing height) — kept OUTSIDE Leg on purpose. The slider always
   // controls the coarse value at its normal step; hundredths + on/off live
@@ -153,13 +341,13 @@ export default function App() {
   // (lengthM/baseHeightCm/heightCm) when their toggle is on. Turning the
   // toggle off drops the fine offset from the value but keeps the
   // hundredths remembered here for next time.
-  type Precision = { hundredths: number; on: boolean };
+  type Precision = { fine: number; on: boolean };
   const [lengthPrecision, setLengthPrecision] = useState<Record<number, Precision>>({});
   const [baseHeightPrecision, setBaseHeightPrecision] = useState<Record<number, Precision>>({});
   const [heightPrecision, setHeightPrecision] = useState<Record<number, Precision>>({});
 
   function getPrecision(map: Record<number, Precision>, legIndex: number): Precision {
-    return map[legIndex] ?? { hundredths: 0, on: false };
+    return map[legIndex] ?? { fine: 0, on: false };
   }
 
   // Undo/redo — covers everything in shape + colorScheme (lengths, heights,
@@ -305,10 +493,34 @@ export default function App() {
   }
 
   function removeLastLeg() {
+    const removedIndex = shape.legs.length - 1;
     setShape((prev) => {
       if (prev.legs.length <= 1) return prev;
       return { legs: prev.legs.slice(0, -1), junctions: prev.junctions.slice(0, -1) };
     });
+    setExpandedLegIndices((prev) => {
+      if (!prev.has(removedIndex)) return prev;
+      const next = new Set(prev);
+      next.delete(removedIndex);
+      return next;
+    });
+  }
+
+  // Clicking an open leg's header collapses it back to the summary line, no
+  // camera change. Clicking a closed leg's header opens it AND flies the
+  // camera to frame that whole leg.
+  function toggleLeg(legIndex: number) {
+    const wasOpen = expandedLegIndices.has(legIndex);
+    setExpandedLegIndices((prev) => {
+      const next = new Set(prev);
+      if (wasOpen) next.delete(legIndex);
+      else next.add(legIndex);
+      return next;
+    });
+    if (!wasOpen) {
+      legFocusNonceRef.current += 1;
+      setLegCameraFocus({ legIndex, nonce: legFocusNonceRef.current });
+    }
   }
 
   function setPostColor(hex: string) {
@@ -500,6 +712,114 @@ export default function App() {
     }));
   }
 
+  function showApplyFenceToast() {
+    const showHint = !hasShownApplyFenceHint;
+    if (showHint) setHasShownApplyFenceHint(true);
+    setApplyFenceToast({ showHint });
+    if (applyFenceToastTimeoutRef.current) window.clearTimeout(applyFenceToastTimeoutRef.current);
+    applyFenceToastTimeoutRef.current = window.setTimeout(() => setApplyFenceToast(null), 6000);
+
+    setUndoPulse(true);
+    if (undoPulseTimeoutRef.current) window.clearTimeout(undoPulseTimeoutRef.current);
+    undoPulseTimeoutRef.current = window.setTimeout(() => setUndoPulse(false), 700);
+  }
+
+  function undoApplyFenceToast() {
+    undo();
+    setApplyFenceToast(null);
+    if (applyFenceToastTimeoutRef.current) window.clearTimeout(applyFenceToastTimeoutRef.current);
+  }
+
+  // "החל על כל הגדר": copies the SINGLE field currently open in the sheet —
+  // every one of its steps' color, profile and spacer — one-to-one by step
+  // index, onto every OTHER field in the project. Independent of each
+  // attribute's own "החל על כל השדות" checkbox. Never touches any leg's own
+  // length/height. A taller/shorter target field just fills/stops per the
+  // normal computeBoardStack rule (closest whole board, no cutting) — steps
+  // beyond what the source had simply aren't written, so they fall back to
+  // that leg's own default the same as any untouched field.
+  //
+  // Color rules are height-keyed (not step-index-keyed — see BoardColorRule
+  // in Scene.tsx), so "by step index" for color means: resolve the source's
+  // color at each step, then re-key it to whatever absolute height that same
+  // step lands at in the TARGET field. A step's height-from-post-base only
+  // depends on the stack of board/spacer dims below it — which is now
+  // identical across every target too, since we're writing the same profile
+  // rules everywhere — so the source's own board.centerCm can be reused
+  // directly; only the target leg's own baseHeightCm differs.
+  function applyFieldToEntireFence() {
+    if (selection?.kind !== 'board') return;
+    const { legIndex: sourceLegIndex, fieldIndex: sourceFieldIndex } = selection;
+    const sourceLeg = shape.legs[sourceLegIndex];
+    const sourceFillHeightCm = sourceLeg.heightCm - sourceLeg.baseHeightCm;
+
+    const sourceStack = computeBoardStack(sourceFillHeightCm, (stepIndex) => {
+      const { modelId, sizeId } = resolveBoardProfile(
+        profileScheme,
+        sourceLegIndex,
+        sourceFieldIndex,
+        stepIndex,
+        sourceLeg.modelId,
+        sourceLeg.sizeId,
+      );
+      const dims = resolveBoardDims(modelId, sizeId);
+      const spacerMultiplier = resolveSpacerMultiplier(profileScheme, sourceLegIndex, sourceFieldIndex, stepIndex);
+      return { modelId, sizeId, boardHeightCm: dims.boardHeightCm, spacerHeightCm: dims.spacerHeightCm * spacerMultiplier };
+    });
+
+    if (sourceStack.boards.length === 0) return;
+
+    const newProfileRules: BoardProfileRule[] = [];
+    const newSpacerRules: SpacerRule[] = [];
+    const newColorRules: BoardColorRule[] = [];
+
+    shape.legs.forEach((targetLeg, targetLegIndex) => {
+      const targetFieldCount = fieldCountFor(targetLeg.lengthM);
+      for (let targetFieldIndex = 0; targetFieldIndex < targetFieldCount; targetFieldIndex++) {
+        if (targetLegIndex === sourceLegIndex && targetFieldIndex === sourceFieldIndex) continue;
+        for (const board of sourceStack.boards) {
+          newProfileRules.push({
+            stepIndex: board.stepIndex,
+            modelId: board.modelId,
+            sizeId: board.sizeId,
+            direction: 'exact',
+            scope: 'field',
+            legIndex: targetLegIndex,
+            fieldIndex: targetFieldIndex,
+          });
+          newSpacerRules.push({
+            stepIndex: board.stepIndex,
+            multiplier: resolveSpacerMultiplier(profileScheme, sourceLegIndex, sourceFieldIndex, board.stepIndex),
+            direction: 'exact',
+            scope: 'field',
+            legIndex: targetLegIndex,
+            fieldIndex: targetFieldIndex,
+          });
+          const sourceAbsHeightCm = sourceLeg.baseHeightCm + board.centerCm;
+          const colorHex = resolveBoardColorHex(colorScheme, sourceLegIndex, sourceFieldIndex, sourceAbsHeightCm);
+          const targetAbsHeightCm = targetLeg.baseHeightCm + board.centerCm;
+          newColorRules.push({
+            heightCm: targetAbsHeightCm,
+            colorHex,
+            direction: 'exact',
+            scope: 'field',
+            legIndex: targetLegIndex,
+            fieldIndex: targetFieldIndex,
+          });
+        }
+      }
+    });
+
+    setProfileScheme((prev) => ({
+      ...prev,
+      rules: [...prev.rules, ...newProfileRules],
+      spacerRules: [...prev.spacerRules, ...newSpacerRules],
+    }));
+    setColorScheme((prev) => ({ ...prev, boardRules: [...prev.boardRules, ...newColorRules] }));
+
+    showApplyFenceToast();
+  }
+
   // Seed the pickers with the CLICKED board's actual current color, profile
   // and spacer, instead of leaving whatever was last picked for a different
   // board — that staleness was its own source of "why did it apply the
@@ -526,6 +846,25 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selection]);
 
+  // Selecting a step in the SCENE syncs the panel to it: makes sure that
+  // leg's accordion tab is open (never closes any other open tab) and
+  // scrolls it into view — but only once per leg, not on every step within
+  // a multi/range selection on a leg that's already in view.
+  useEffect(() => {
+    if (selection?.kind !== 'board') {
+      lastAutoScrolledLegRef.current = null;
+      return;
+    }
+    const { legIndex } = selection;
+    setExpandedLegIndices((prev) => (prev.has(legIndex) ? prev : new Set(prev).add(legIndex)));
+    if (lastAutoScrolledLegRef.current !== legIndex) {
+      lastAutoScrolledLegRef.current = legIndex;
+      requestAnimationFrame(() => {
+        legRefs.current[legIndex]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      });
+    }
+  }, [selection]);
+
   return (
     <div className="app">
       <div className="scene-area">
@@ -536,6 +875,8 @@ export default function App() {
           selection={selection}
           onSelect={setSelection}
           onStats={setStats}
+          skipNextFocusRef={skipNextFocusRef}
+          legCameraFocus={legCameraFocus}
         />
         <div className="stats-badge">
           <div>{stats.fps} FPS</div>
@@ -544,13 +885,28 @@ export default function App() {
         </div>
 
         <div className="history-controls">
-          <button className="history-btn" onClick={undo} disabled={!canUndo} title="בטל (Ctrl+Z)">
+          <button
+            className={undoPulse ? 'history-btn history-btn-pulse' : 'history-btn'}
+            onClick={undo}
+            disabled={!canUndo}
+            title="בטל (Ctrl+Z)"
+          >
             ↶
           </button>
           <button className="history-btn" onClick={redo} disabled={!canRedo} title="בצע שוב (Ctrl+Y)">
             ↷
           </button>
         </div>
+
+        {applyFenceToast && (
+          <div className="toast">
+            <span className="toast-message">העיצוב של השדה הוחל על כל הגדר</span>
+            <button className="toast-undo" onClick={undoApplyFenceToast}>
+              בטל ↺
+            </button>
+            {applyFenceToast.showHint && <div className="toast-hint">תמיד אפשר לבטל שינויים גדולים</div>}
+          </div>
+        )}
 
         {selection?.kind === 'post' && (
           <div className="bottom-sheet" style={{ height: sheetHeight }}>
@@ -763,7 +1119,15 @@ export default function App() {
                 </button>
               </div>
             </div>
+
             </div>
+
+            <div className="apply-fence-footer">
+              <button type="button" className="apply-fence-btn" onClick={applyFieldToEntireFence}>
+                החל שדה זה על כל הגדר
+              </button>
+            </div>
+
             </div>
           </div>
         )}
@@ -796,90 +1160,118 @@ export default function App() {
           פותחת בחירת צבע מפוצלת לפי גובה.
         </p>
 
-        {shape.legs.map((leg, legIndex) => (
-          <div key={legIndex}>
-            <div className="segment-block">
-              <div className="segment-header">
-                <span>רגל {legIndex + 1}</span>
+        {shape.legs.map((leg, legIndex) => {
+          const isOpen = expandedLegIndices.has(legIndex);
+          return (
+            <div key={legIndex} ref={(el) => { legRefs.current[legIndex] = el; }}>
+              <div className="segment-block">
+                <button
+                  type="button"
+                  className="segment-header segment-header-toggle"
+                  onClick={() => toggleLeg(legIndex)}
+                >
+                  <span>רגל {legIndex + 1}</span>
+                  {!isOpen && (
+                    <span className="segment-summary">
+                      אורך {leg.lengthM.toFixed(1)} מ׳ · סגירה {Math.round(leg.heightCm)} ס״מ
+                    </span>
+                  )}
+                  <span className={isOpen ? 'segment-caret segment-caret-open' : 'segment-caret'}>
+                    {isOpen ? '↑' : '↓'}
+                  </span>
+                </button>
+
+                {isOpen && (
+                  <>
+                    <PrecisionSlider
+                      mode="length"
+                      className="leg-row"
+                      label="אורך"
+                      min={0}
+                      max={20}
+                      step={1}
+                      value={leg.lengthM}
+                      fineValue={getPrecision(lengthPrecision, legIndex).fine}
+                      precisionOn={getPrecision(lengthPrecision, legIndex).on}
+                      onChangeValue={(v) => updateLegLength(legIndex, v)}
+                      onChangeFineValue={(f) =>
+                        setLengthPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), fine: f } }))
+                      }
+                      onTogglePrecision={(on) =>
+                        setLengthPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), on } }))
+                      }
+                      onFineAdjust={() => {
+                        skipNextFocusRef.current = true;
+                      }}
+                    />
+
+                    <PrecisionSlider
+                      mode="height"
+                      className="leg-row base-height-row"
+                      label="גובה חומה קיים"
+                      min={0}
+                      max={Math.max(0, leg.heightCm - 20)}
+                      step={1}
+                      value={leg.baseHeightCm}
+                      fineValue={getPrecision(baseHeightPrecision, legIndex).fine}
+                      precisionOn={getPrecision(baseHeightPrecision, legIndex).on}
+                      onChangeValue={(v) => updateLeg(legIndex, (l) => ({ ...l, baseHeightCm: v }))}
+                      onChangeFineValue={(f) =>
+                        setBaseHeightPrecision((prev) => ({
+                          ...prev,
+                          [legIndex]: { ...getPrecision(prev, legIndex), fine: f },
+                        }))
+                      }
+                      onTogglePrecision={(on) =>
+                        setBaseHeightPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), on } }))
+                      }
+                      onFineAdjust={() => {
+                        skipNextFocusRef.current = true;
+                      }}
+                    />
+
+                    <PrecisionSlider
+                      mode="height"
+                      className="leg-row"
+                      label="גובה סגירה"
+                      min={60}
+                      max={200}
+                      step={1}
+                      value={leg.heightCm}
+                      fineValue={getPrecision(heightPrecision, legIndex).fine}
+                      precisionOn={getPrecision(heightPrecision, legIndex).on}
+                      onChangeValue={(v) => updateLeg(legIndex, (l) => ({ ...l, heightCm: v }))}
+                      onChangeFineValue={(f) =>
+                        setHeightPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), fine: f } }))
+                      }
+                      onTogglePrecision={(on) =>
+                        setHeightPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), on } }))
+                      }
+                      onFineAdjust={() => {
+                        skipNextFocusRef.current = true;
+                      }}
+                    />
+                  </>
+                )}
               </div>
 
-              <PrecisionSlider
-                className="leg-row"
-                label="אורך"
-                unit="מ׳"
-                min={0.5}
-                max={20}
-                step={0.5}
-                value={leg.lengthM}
-                hundredths={getPrecision(lengthPrecision, legIndex).hundredths}
-                precisionOn={getPrecision(lengthPrecision, legIndex).on}
-                onChangeValue={(v) => updateLegLength(legIndex, v)}
-                onChangeHundredths={(h) =>
-                  setLengthPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), hundredths: h } }))
-                }
-                onTogglePrecision={(on) =>
-                  setLengthPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), on } }))
-                }
-              />
-
-              <PrecisionSlider
-                className="leg-row base-height-row"
-                label="גובה חומה קיים"
-                unit="ס״מ"
-                min={0}
-                max={Math.max(0, leg.heightCm - 20)}
-                step={5}
-                value={leg.baseHeightCm}
-                hundredths={getPrecision(baseHeightPrecision, legIndex).hundredths}
-                precisionOn={getPrecision(baseHeightPrecision, legIndex).on}
-                onChangeValue={(v) => updateLeg(legIndex, (l) => ({ ...l, baseHeightCm: v }))}
-                onChangeHundredths={(h) =>
-                  setBaseHeightPrecision((prev) => ({
-                    ...prev,
-                    [legIndex]: { ...getPrecision(prev, legIndex), hundredths: h },
-                  }))
-                }
-                onTogglePrecision={(on) =>
-                  setBaseHeightPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), on } }))
-                }
-              />
-
-              <PrecisionSlider
-                className="leg-row"
-                label="גובה סגירה"
-                unit="ס״מ"
-                min={60}
-                max={200}
-                step={5}
-                value={leg.heightCm}
-                hundredths={getPrecision(heightPrecision, legIndex).hundredths}
-                precisionOn={getPrecision(heightPrecision, legIndex).on}
-                onChangeValue={(v) => updateLeg(legIndex, (l) => ({ ...l, heightCm: v }))}
-                onChangeHundredths={(h) =>
-                  setHeightPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), hundredths: h } }))
-                }
-                onTogglePrecision={(on) =>
-                  setHeightPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), on } }))
-                }
-              />
+              {isOpen && shape.junctions[legIndex] && (
+                <div className="corner-row junction-row">
+                  <span>צומת:</span>
+                  {(['right', 'left', 'straight', 'disconnect'] as const).map((t) => (
+                    <button
+                      key={t}
+                      className={shape.junctions[legIndex].type === t ? 'pill active' : 'pill'}
+                      onClick={() => setJunction(legIndex, t)}
+                    >
+                      {JUNCTION_LABELS[t]}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-
-            {shape.junctions[legIndex] && (
-              <div className="corner-row junction-row">
-                <span>צומת:</span>
-                {(['right', 'left', 'straight', 'disconnect'] as const).map((t) => (
-                  <button
-                    key={t}
-                    className={shape.junctions[legIndex].type === t ? 'pill active' : 'pill'}
-                    onClick={() => setJunction(legIndex, t)}
-                  >
-                    {JUNCTION_LABELS[t]}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
+          );
+        })}
 
         <div className="segment-actions">
           <button className="text-btn" onClick={addLeg}>

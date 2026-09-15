@@ -173,8 +173,43 @@
   color: var(--brand-secondary);
 }
 
+.segment-header-toggle {
+  width: 100%;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  text-align: inherit;
+}
+
+.segment-header-toggle:hover {
+  color: var(--brand-primary);
+}
+
+.segment-summary {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-inline: 10px;
+}
+
+.segment-caret {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex: 0 0 auto;
+}
+
+.segment-caret-open {
+  font-size: 20px;
+  color: var(--brand-primary);
+  margin-inline: auto;
+}
+
 .leg-row {
-  margin-bottom: 4px;
+  display: block;
+  font-size: 13px;
+  margin-bottom: 16px;
 }
 
 .leg-block {
@@ -503,5 +538,276 @@
     margin-bottom: 0;
     padding-bottom: 0;
     border-bottom: none;
+  }
+}
+
+/* Click-to-edit trigger — the whole "label: value unit" line is one button,
+   styled as plain text with just a dotted-underline hint rather than a
+   bordered input/select field. Whole-line target beats a small icon or a
+   number-only hit area, especially on mobile. */
+.value-trigger {
+  display: block;
+  width: 100%;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0 0 6px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: inherit;
+  text-align: inherit;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+.value-trigger:hover {
+  color: var(--brand-primary);
+}
+
+/* Manual-entry popover — fixed + centered on the viewport (not anchored
+   inline) so it's never clipped by the panel's own scroll container and
+   always renders fully visible, regardless of where the triggering slider
+   sits in a long, scrolled leg list. */
+.value-popover-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.25);
+  z-index: 40;
+}
+
+.value-popover {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+  padding: 18px;
+  width: 240px;
+  max-width: calc(100vw - 32px);
+  z-index: 41;
+}
+
+.value-popover-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 14px;
+  color: var(--brand-secondary);
+  text-align: center;
+}
+
+.value-popover-fields {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.value-popover-field-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+
+.value-popover-input {
+  width: 78px;
+  padding: 9px 6px;
+  border: 1.5px solid #ccc;
+  border-radius: 8px;
+  font-size: 16px;
+  text-align: center;
+}
+
+.value-popover-input:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+}
+
+.value-popover-unit {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.value-popover-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-bottom: 16px;
+  text-align: center;
+}
+
+.value-popover-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.value-popover-apply {
+  flex: 1;
+  border: none;
+  background: var(--brand-primary);
+  color: #fff;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.value-popover-apply:hover {
+  background: var(--brand-primary-hover);
+}
+
+.value-popover-cancel {
+  flex: 1;
+  border: 1.5px solid #ccc;
+  background: #fff;
+  color: var(--brand-secondary);
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* Fine-precision row — shared by the length slider (a real drag slider in
+   cm, mm resolution) and the height sliders (the older +/- stepper, now in
+   tenths of a cm instead of hundredths). The current fine value is a plain
+   read-only readout, not an editable box — typing an exact number only
+   happens in the popover above. */
+.precision-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.precision-input {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.precision-input input[type='range'] {
+  width: 130px;
+  margin: 0;
+}
+
+.fine-readout {
+  min-width: 40px;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* "החל שדה זה על כל הגדר" — the single global button at the bottom of the
+   step-edit sheet, visually separated from the per-attribute carousels
+   above it. */
+.apply-fence-footer {
+  border-top: 2px solid #818181;
+  margin-top: 4px;
+  padding-top: 14px;
+  display: flex;
+  justify-content: center;
+}
+
+.apply-fence-btn {
+  border: 2px solid var(--brand-primary);
+  background: #fff;
+  color: var(--brand-primary);
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.apply-fence-btn:hover {
+  background: var(--brand-primary);
+  color: #fff;
+}
+
+/* Toast feedback after "החל שדה זה על כל הגדר" — immediate undo built in,
+   plus a one-time-only extra hint line the first time it's used. */
+.toast {
+  position: absolute;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(20, 22, 24, 0.92);
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(90%, 420px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  z-index: 20;
+  animation: toast-in 0.2s ease-out;
+}
+
+.toast-message {
+  white-space: nowrap;
+}
+
+.toast-undo {
+  flex: 0 0 auto;
+  border: 1px solid #fff;
+  background: none;
+  color: #fff;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.toast-undo:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.toast-hint {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 6px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.75);
+  text-align: center;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -6px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+/* Brief pulse on the corner undo (↶) button — fires alongside the toast so
+   the eye is drawn to the "big" undo affordance too, not just the toast's
+   own button. */
+.history-btn-pulse {
+  animation: history-btn-pulse 0.7s ease-out;
+}
+
+@keyframes history-btn-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(187, 41, 49, 0.65);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(187, 41, 49, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(187, 41, 49, 0);
   }
 }

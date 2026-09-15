@@ -166,6 +166,17 @@ interface SceneProps {
     postCount: number;
     doublePostCount: number;
   }) => void;
+  /** When the caller sets .current = true before a shape change, that ONE
+   * change skips the camera reframe it would otherwise trigger (consumed
+   * and reset back to false here) — for edits that legitimately change a
+   * leg's numbers but shouldn't fly the camera around, like a fine-precision
+   * nudge in the general panel. */
+  skipNextFocusRef?: { current: boolean };
+  /** Set by the panel when a leg's accordion header is clicked OPEN — flies
+   * the camera to frame that whole leg. `nonce` makes every click a fresh
+   * request even when re-opening the same leg, since the object would
+   * otherwise look unchanged. Null = no pending leg-focus request. */
+  legCameraFocus?: { legIndex: number; nonce: number } | null;
 }
 
 interface FrameTarget {
@@ -228,7 +239,16 @@ function diffFocusLegs(prev: Shape, next: Shape): { legIndices: number[]; resetA
   return null;
 }
 
-export default function Scene({ shape, colorScheme, profileScheme, selection, onSelect, onStats }: SceneProps) {
+export default function Scene({
+  shape,
+  colorScheme,
+  profileScheme,
+  selection,
+  onSelect,
+  onStats,
+  skipNextFocusRef,
+  legCameraFocus,
+}: SceneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -244,6 +264,9 @@ export default function Scene({ shape, colorScheme, profileScheme, selection, on
   const geometryStatsRef = useRef({ boardCount: 0, postCount: 0, doublePostCount: 0 });
 
   const shapeBoundsRef = useRef<FrameTarget>({ centerX: 4, centerY: 0.8, centerZ: 0, radius: 4 });
+  const legBoundsRef = useRef<Map<number, { minX: number; maxX: number; minZ: number; maxZ: number; topM: number }>>(
+    new Map(),
+  );
   const prevShapeRef = useRef<Shape | null>(null);
   const prevSelectionRef = useRef<Selection | null>(null);
   const lastFrameTargetRef = useRef<FrameTarget | null>(null);
@@ -753,6 +776,8 @@ export default function Scene({ shape, colorScheme, profileScheme, selection, on
       includeInLeg(field.legIndex, field.position.x, field.position.z, baseM + field.fillHeightCm / 100);
     }
 
+    legBoundsRef.current = legBounds;
+
     geometryStatsRef.current = {
       boardCount: totalBoards,
       postCount: totalPosts,
@@ -773,6 +798,9 @@ export default function Scene({ shape, colorScheme, profileScheme, selection, on
     const isFirstBuild = prevShapeRef.current === null;
     const focusDiff = isFirstBuild ? null : diffFocusLegs(prevShapeRef.current!, shape);
     prevShapeRef.current = shape;
+
+    const skipThisFocus = skipNextFocusRef?.current ?? false;
+    if (skipNextFocusRef) skipNextFocusRef.current = false;
 
     if (isFirstBuild) {
       snapTo(fullBounds, FULL_SHAPE_PADDING);
@@ -821,6 +849,10 @@ export default function Scene({ shape, colorScheme, profileScheme, selection, on
     }
     if (!isFinite(fMinX)) return;
 
+    if (skipThisFocus) {
+      return;
+    }
+
     const focusTarget: FrameTarget = {
       centerX: (fMinX + fMaxX) / 2,
       centerY: fTopM * 0.4,
@@ -841,6 +873,25 @@ export default function Scene({ shape, colorScheme, profileScheme, selection, on
       preserveAngle: !focusDiff.resetAngle,
     });
   }, [shape, colorScheme, profileScheme, selection]);
+
+  // Leg-level camera focus, driven by the panel (opening a leg's accordion
+  // tab) — separate from the click-to-select focus above, which only ever
+  // frames a single post/step. Reads legBoundsRef rather than recomputing
+  // geometry, since opening a tab doesn't change shape/selection and so
+  // wouldn't otherwise re-run the effect above.
+  useEffect(() => {
+    if (!legCameraFocus) return;
+    const b = legBoundsRef.current.get(legCameraFocus.legIndex);
+    if (!b) return;
+    const target: FrameTarget = {
+      centerX: (b.minX + b.maxX) / 2,
+      centerY: b.topM * 0.4,
+      centerZ: (b.minZ + b.maxZ) / 2,
+      radius: Math.max(Math.sqrt((b.maxX - b.minX) ** 2 + (b.maxZ - b.minZ) ** 2 + b.topM ** 2) / 2, 1.5),
+    };
+    flyTo(target, FOCUS_EDIT_PADDING, { preserveAngle: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [legCameraFocus]);
 
   return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />;
 }
