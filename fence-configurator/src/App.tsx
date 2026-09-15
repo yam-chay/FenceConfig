@@ -45,6 +45,94 @@ function defaultProfileScheme(): ProfileScheme {
   return { rules: [], spacerRules: [] };
 }
 
+/**
+ * A slider whose main handle stays at its normal step (0.5m, 5cm, whatever
+ * the caller passes), plus an optional fine offset — hundredths of the
+ * unit, toggled on/off. `value` is the FULL effective number (what's
+ * actually stored on the leg); `hundredths`/`precisionOn` are the caller's
+ * own state for this field. The coarse position shown on the slider is
+ * reconstructed as value minus whatever fine offset is currently applied,
+ * so the two can't drift apart.
+ */
+function PrecisionSlider({
+  label,
+  unit,
+  min,
+  max,
+  step,
+  value,
+  hundredths,
+  precisionOn,
+  onChangeValue,
+  onChangeHundredths,
+  onTogglePrecision,
+  className,
+}: {
+  label: string;
+  unit: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  hundredths: number;
+  precisionOn: boolean;
+  onChangeValue: (v: number) => void;
+  onChangeHundredths: (h: number) => void;
+  onTogglePrecision: (on: boolean) => void;
+  className?: string;
+}) {
+  const appliedFine = precisionOn ? hundredths / 100 : 0;
+  const coarse = value - appliedFine;
+  const displayValue = precisionOn ? value.toFixed(2) : (Math.round(coarse * 100) / 100).toString();
+
+  function setHundredths(h: number) {
+    const clamped = Math.max(0, Math.min(99, Math.round(h)));
+    onChangeHundredths(clamped);
+    onChangeValue(coarse + (precisionOn ? clamped / 100 : 0));
+  }
+
+  function toggle(on: boolean) {
+    onTogglePrecision(on);
+    onChangeValue(coarse + (on ? hundredths / 100 : 0));
+  }
+
+  return (
+    <label className={className}>
+      {label}: {displayValue} {unit}
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={coarse}
+        onChange={(e) => onChangeValue(Number(e.target.value) + appliedFine)}
+      />
+      <div className="precision-row">
+        <button type="button" className="text-btn" onClick={() => toggle(!precisionOn)}>
+          {precisionOn ? 'כיבוי דיוק' : 'דיוק עדין (מתקדם)'}
+        </button>
+        {precisionOn && (
+          <span className="precision-input">
+            <button type="button" onClick={() => setHundredths(hundredths - 1)}>
+              −
+            </button>
+            <input
+              type="number"
+              min={0}
+              max={99}
+              value={hundredths}
+              onChange={(e) => setHundredths(Number(e.target.value))}
+            />
+            <button type="button" onClick={() => setHundredths(hundredths + 1)}>
+              +
+            </button>
+          </span>
+        )}
+      </div>
+    </label>
+  );
+}
+
 export default function App() {
   const [shape, setShape] = useState<Shape>(defaultShape());
   const [colorScheme, setColorScheme] = useState<ColorScheme>(defaultColorScheme());
@@ -54,10 +142,25 @@ export default function App() {
   const [pendingModelId, setPendingModelId] = useState(DEFAULT_MODEL_ID);
   const [pendingSizeId, setPendingSizeId] = useState(DEFAULT_SIZE_ID);
   const [pendingSpacer, setPendingSpacer] = useState(1);
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [applyToAllFields, setApplyToAllFields] = useState(false);
   const [sheetHeight, setSheetHeight] = useState(260);
   const dragStartRef = useRef<{ startY: number; startHeight: number } | null>(null);
+
+  // Fine-precision state for the three leg sliders (length/base
+  // height/closing height) — kept OUTSIDE Leg on purpose. The slider always
+  // controls the coarse value at its normal step; hundredths + on/off live
+  // here per leg, and only get folded into the leg's real value
+  // (lengthM/baseHeightCm/heightCm) when their toggle is on. Turning the
+  // toggle off drops the fine offset from the value but keeps the
+  // hundredths remembered here for next time.
+  type Precision = { hundredths: number; on: boolean };
+  const [lengthPrecision, setLengthPrecision] = useState<Record<number, Precision>>({});
+  const [baseHeightPrecision, setBaseHeightPrecision] = useState<Record<number, Precision>>({});
+  const [heightPrecision, setHeightPrecision] = useState<Record<number, Precision>>({});
+
+  function getPrecision(map: Record<number, Precision>, legIndex: number): Precision {
+    return map[legIndex] ?? { hundredths: 0, on: false };
+  }
 
   // Undo/redo — covers everything in shape + colorScheme (lengths, heights,
   // legs, junctions, post/board colors). Every change to either pushes a
@@ -380,12 +483,13 @@ export default function App() {
   }
 
   // Explicit escape hatch: a field with ANY field-scoped profile rule stays
-  // deaf to the leg-level "סוג פרופיל (לכל המקטע)" control for whatever
-  // height range that rule covers — even if you've since repainted every
-  // step back to the same type, since that's still explicit rules, not "no
-  // rules". Repainting to look uniform again doesn't undo that; this does,
-  // on purpose, rather than guessing from the resolved colors/types whether
-  // a field "counts" as still customized.
+  // deaf to the leg's own bootstrap default (no longer user-facing, but
+  // still resolveBoardProfile's fallback) for whatever height range that
+  // rule covers — even if you've since repainted every step back to the
+  // same type, since that's still explicit rules, not "no rules".
+  // Repainting to look uniform again doesn't undo that; this does, on
+  // purpose, rather than guessing from the resolved colors/types whether a
+  // field "counts" as still customized.
   function clearFieldProfile(legIndex: number, fieldIndex: number) {
     setProfileScheme((prev) => ({
       ...prev,
@@ -508,44 +612,7 @@ export default function App() {
               </button>
             </div>
             <div className="bottom-sheet-content">
-
-            <div className="carousel-row">
-              <span className="carousel-label">סוג פרופיל (לכל המקטע)</span>
-              <div className="carousel">
-                {FENCE_CATALOG.map((model, i) => (
-                  <button
-                    key={model.id}
-                    className={
-                      shape.legs[selection.legIndex].modelId === model.id ? 'carousel-item active' : 'carousel-item'
-                    }
-                    onClick={() =>
-                      updateLeg(selection.legIndex, (l) => ({ ...l, modelId: model.id, sizeId: model.sizes[0].id }))
-                    }
-                  >
-                    {model.name ?? `סוג ${i + 1}`}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="carousel-row">
-              <span className="carousel-label">גודל</span>
-              <div className="carousel">
-                {(FENCE_CATALOG.find((m) => m.id === shape.legs[selection.legIndex].modelId) ?? FENCE_CATALOG[0]).sizes.map(
-                  (size) => (
-                    <button
-                      key={size.id}
-                      className={
-                        shape.legs[selection.legIndex].sizeId === size.id ? 'carousel-item active' : 'carousel-item'
-                      }
-                      onClick={() => updateLeg(selection.legIndex, (l) => ({ ...l, sizeId: size.id }))}
-                    >
-                      {size.name ?? `${size.boardHeightCm}/${size.spacerHeightCm} ס״מ`}
-                    </button>
-                  ),
-                )}
-              </div>
-            </div>
+            <div className="sheet-flow">
 
             <div className="carousel-row">
               <div className="carousel-label-row">
@@ -581,76 +648,69 @@ export default function App() {
                   </button>
                 ))}
               </div>
-            </div>
-            <div className="split-actions">
-              <button
-                className="text-btn"
-                onClick={() => addProfileRule('below', Math.min(...selection.stepIndices), pendingModelId, pendingSizeId)}
-              >
-                מהשלב הזה ומטה ↓
-              </button>
-              <button
-                className="text-btn"
-                onClick={() => addProfileRule('above', Math.max(...selection.stepIndices), pendingModelId, pendingSizeId)}
-              >
-                מהשלב הזה ומעלה ↑
-              </button>
-              {(profileScheme.rules.some(
-                (r) => r.scope === 'field' && r.legIndex === selection.legIndex && r.fieldIndex === selection.fieldIndex,
-              ) ||
-                profileScheme.spacerRules.some(
-                  (r) =>
-                    r.scope === 'field' && r.legIndex === selection.legIndex && r.fieldIndex === selection.fieldIndex,
-                )) && (
+              <div className="split-actions">
                 <button
                   className="text-btn"
-                  onClick={() => clearFieldProfile(selection.legIndex, selection.fieldIndex)}
+                  onClick={() =>
+                    addProfileRule('below', Math.min(...selection.stepIndices), pendingModelId, pendingSizeId)
+                  }
                 >
-                  אפס שדה לברירת המחדל של המקטע ↺
+                  מהשלב הזה ומטה ↓
                 </button>
-              )}
+                <button
+                  className="text-btn"
+                  onClick={() =>
+                    addProfileRule('above', Math.max(...selection.stepIndices), pendingModelId, pendingSizeId)
+                  }
+                >
+                  מהשלב הזה ומעלה ↑
+                </button>
+                {(profileScheme.rules.some(
+                  (r) =>
+                    r.scope === 'field' && r.legIndex === selection.legIndex && r.fieldIndex === selection.fieldIndex,
+                ) ||
+                  profileScheme.spacerRules.some(
+                    (r) =>
+                      r.scope === 'field' && r.legIndex === selection.legIndex && r.fieldIndex === selection.fieldIndex,
+                  )) && (
+                  <button className="text-btn" onClick={() => clearFieldProfile(selection.legIndex, selection.fieldIndex)}>
+                    אפס שדה לברירת המחדל של המקטע ↺
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="carousel-row">
-              <button className="text-btn" onClick={() => setShowAdvanced((v) => !v)}>
-                {showAdvanced ? 'אפשרויות מתקדמות ▴' : 'אפשרויות מתקדמות ▾'}
-              </button>
-              {showAdvanced && (
-                <>
-                  <span className="carousel-label" style={{ marginTop: 8 }}>
-                    רווח מתחת לשלב הזה — לחיצה קובעת מיד רק אותו
-                  </span>
-                  <div className="carousel">
-                    {[
-                      { label: 'חצי', value: 0.5 },
-                      { label: 'רגיל', value: 1 },
-                      { label: 'כפול', value: 2 },
-                    ].map((opt) => (
-                      <button
-                        key={opt.value}
-                        className={pendingSpacer === opt.value ? 'carousel-item active' : 'carousel-item'}
-                        onClick={() => pickSpacer(opt.value)}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="split-actions">
-                    <button
-                      className="text-btn"
-                      onClick={() => addSpacerRule('below', Math.min(...selection.stepIndices), pendingSpacer)}
-                    >
-                      מהשלב הזה ומטה ↓
-                    </button>
-                    <button
-                      className="text-btn"
-                      onClick={() => addSpacerRule('above', Math.max(...selection.stepIndices), pendingSpacer)}
-                    >
-                      מהשלב הזה ומעלה ↑
-                    </button>
-                  </div>
-                </>
-              )}
+              <span className="carousel-label">רווח מתחת לשלב הזה — לחיצה קובעת מיד רק אותו</span>
+              <div className="carousel">
+                {[
+                  { label: 'חצי', value: 0.5 },
+                  { label: 'רגיל', value: 1 },
+                  { label: 'כפול', value: 2 },
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    className={pendingSpacer === opt.value ? 'carousel-item active' : 'carousel-item'}
+                    onClick={() => pickSpacer(opt.value)}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <div className="split-actions">
+                <button
+                  className="text-btn"
+                  onClick={() => addSpacerRule('below', Math.min(...selection.stepIndices), pendingSpacer)}
+                >
+                  מהשלב הזה ומטה ↓
+                </button>
+                <button
+                  className="text-btn"
+                  onClick={() => addSpacerRule('above', Math.max(...selection.stepIndices), pendingSpacer)}
+                >
+                  מהשלב הזה ומעלה ↑
+                </button>
+              </div>
             </div>
 
             <div className="carousel-row">
@@ -676,39 +736,58 @@ export default function App() {
                   />
                 ))}
               </div>
+              <div className="split-actions">
+                <button
+                  className="text-btn"
+                  onClick={() =>
+                    addColorRule(
+                      'below',
+                      selection.stepHeights[Math.min(...selection.stepIndices)] ?? selection.heightCm,
+                      pendingBoardColor,
+                    )
+                  }
+                >
+                  מהשלב הזה ומטה ↓
+                </button>
+                <button
+                  className="text-btn"
+                  onClick={() =>
+                    addColorRule(
+                      'above',
+                      selection.stepHeights[Math.max(...selection.stepIndices)] ?? selection.heightCm,
+                      pendingBoardColor,
+                    )
+                  }
+                >
+                  מהשלב הזה ומעלה ↑
+                </button>
+              </div>
             </div>
-            <div className="split-actions">
-              <button
-                className="text-btn"
-                onClick={() =>
-                  addColorRule(
-                    'below',
-                    selection.stepHeights[Math.min(...selection.stepIndices)] ?? selection.heightCm,
-                    pendingBoardColor,
-                  )
-                }
-              >
-                מהשלב הזה ומטה ↓
-              </button>
-              <button
-                className="text-btn"
-                onClick={() =>
-                  addColorRule(
-                    'above',
-                    selection.stepHeights[Math.max(...selection.stepIndices)] ?? selection.heightCm,
-                    pendingBoardColor,
-                  )
-                }
-              >
-                מהשלב הזה ומעלה ↑
-              </button>
             </div>
             </div>
           </div>
         )}
       </div>
 
-      <div className={selection ? 'panel panel-yield-mobile' : 'panel'}>
+      <div
+        className={selection ? 'panel panel-yield-mobile' : 'panel'}
+        style={{ '--panel-mobile-height': `${sheetHeight}px` } as React.CSSProperties}
+      >
+        <div
+          className="panel-mobile-handle"
+          onPointerDown={handleDragStart}
+          onPointerMove={handleDragMove}
+          onPointerUp={handleDragEnd}
+          onPointerCancel={handleDragEnd}
+        >
+          <div className="sheet-handle-bar" />
+        </div>
+        <div className="panel-mobile-header">
+          <button className="text-btn" onClick={() => setSheetHeight((h) => (h <= 60 ? 320 : 56))}>
+            {sheetHeight <= 60 ? 'פתח ⌃' : 'כווץ ✕'}
+          </button>
+        </div>
+        <div className="panel-scroll">
         <h1>בילדר צורה — גדר פרוצדורלית</h1>
         <p className="hint">
           רגל היא היחידה הבסיסית — לכל רגל גובה חומה קיים וגובה סגירה משלה. הצומת בין כל שתי
@@ -724,41 +803,65 @@ export default function App() {
                 <span>רגל {legIndex + 1}</span>
               </div>
 
-              <label className="leg-row">
-                אורך: {leg.lengthM.toFixed(1)} מ׳
-                <input
-                  type="range"
-                  min={0.5}
-                  max={20}
-                  step={0.5}
-                  value={leg.lengthM}
-                  onChange={(e) => updateLegLength(legIndex, Number(e.target.value))}
-                />
-              </label>
+              <PrecisionSlider
+                className="leg-row"
+                label="אורך"
+                unit="מ׳"
+                min={0.5}
+                max={20}
+                step={0.5}
+                value={leg.lengthM}
+                hundredths={getPrecision(lengthPrecision, legIndex).hundredths}
+                precisionOn={getPrecision(lengthPrecision, legIndex).on}
+                onChangeValue={(v) => updateLegLength(legIndex, v)}
+                onChangeHundredths={(h) =>
+                  setLengthPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), hundredths: h } }))
+                }
+                onTogglePrecision={(on) =>
+                  setLengthPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), on } }))
+                }
+              />
 
-              <label className="leg-row base-height-row">
-                גובה חומה קיים: {leg.baseHeightCm} ס״מ
-                <input
-                  type="range"
-                  min={0}
-                  max={Math.max(0, leg.heightCm - 20)}
-                  step={5}
-                  value={leg.baseHeightCm}
-                  onChange={(e) => updateLeg(legIndex, (l) => ({ ...l, baseHeightCm: Number(e.target.value) }))}
-                />
-              </label>
+              <PrecisionSlider
+                className="leg-row base-height-row"
+                label="גובה חומה קיים"
+                unit="ס״מ"
+                min={0}
+                max={Math.max(0, leg.heightCm - 20)}
+                step={5}
+                value={leg.baseHeightCm}
+                hundredths={getPrecision(baseHeightPrecision, legIndex).hundredths}
+                precisionOn={getPrecision(baseHeightPrecision, legIndex).on}
+                onChangeValue={(v) => updateLeg(legIndex, (l) => ({ ...l, baseHeightCm: v }))}
+                onChangeHundredths={(h) =>
+                  setBaseHeightPrecision((prev) => ({
+                    ...prev,
+                    [legIndex]: { ...getPrecision(prev, legIndex), hundredths: h },
+                  }))
+                }
+                onTogglePrecision={(on) =>
+                  setBaseHeightPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), on } }))
+                }
+              />
 
-              <label className="leg-row">
-                גובה סגירה: {leg.heightCm} ס״מ
-                <input
-                  type="range"
-                  min={60}
-                  max={200}
-                  step={5}
-                  value={leg.heightCm}
-                  onChange={(e) => updateLeg(legIndex, (l) => ({ ...l, heightCm: Number(e.target.value) }))}
-                />
-              </label>
+              <PrecisionSlider
+                className="leg-row"
+                label="גובה סגירה"
+                unit="ס״מ"
+                min={60}
+                max={200}
+                step={5}
+                value={leg.heightCm}
+                hundredths={getPrecision(heightPrecision, legIndex).hundredths}
+                precisionOn={getPrecision(heightPrecision, legIndex).on}
+                onChangeValue={(v) => updateLeg(legIndex, (l) => ({ ...l, heightCm: v }))}
+                onChangeHundredths={(h) =>
+                  setHeightPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), hundredths: h } }))
+                }
+                onTogglePrecision={(on) =>
+                  setHeightPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), on } }))
+                }
+              />
             </div>
 
             {shape.junctions[legIndex] && (
@@ -805,6 +908,7 @@ export default function App() {
         </div>
 
         <p className="footnote">מידות עמוד, עובי לוח ועומק חריץ עדיין PLACEHOLDER — ראה constants.ts.</p>
+        </div>
       </div>
     </div>
   );
