@@ -54,3 +54,8 @@ export function resolveBoardDims(modelId: string, sizeId: string): { boardHeight
   const size = model.sizes.find((s) => s.id === sizeId) ?? model.sizes[0];
   return { boardHeightCm: size.boardHeightCm, spacerHeightCm: size.spacerHeightCm };
 }
+
+/** All sizes offered for one model — used to search for a narrower fallback size when the default doesn't fit a remaining gap. Empty array for an unknown modelId, never throws. */
+export function sizesForModel(modelId: string): FenceModelSize[] {
+  return FENCE_CATALOG.find((m) => m.id === modelId)?.sizes ?? [];
+}

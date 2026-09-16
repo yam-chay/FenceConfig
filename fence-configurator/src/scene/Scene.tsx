@@ -2,9 +2,15 @@ import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { layoutShape, type Shape } from '../geometry/shape';
-import { computeBoardStack } from '../geometry/field';
-import { resolveBoardDims } from '../geometry/catalog';
-import { POST_THICKNESS_CM, BOARD_THICKNESS_CM } from '../geometry/constants';
+import { computeBoardStack, type ResolvedBoardDims } from '../geometry/field';
+import { resolveBoardDims, FENCE_CATALOG } from '../geometry/catalog';
+import {
+  POST_THICKNESS_CM,
+  BOARD_THICKNESS_CM,
+  ROSETTE_OFFSET_CM,
+  POST_ACCESSORY_WIDTH_MULTIPLIER,
+  POST_CAP_HEIGHT_CM,
+} from '../geometry/constants';
 
 /** What got clicked — a post (color applies to ALL posts) or a board at a given absolute height (color applies via the below/above split). */
 export type Selection =
@@ -134,9 +140,10 @@ export function resolveBoardProfile(
   stepIndex: number,
   fallbackModelId: string,
   fallbackSizeId: string,
-): { modelId: string; sizeId: string } {
+): { modelId: string; sizeId: string; fromRule: boolean } {
   let modelId = fallbackModelId;
   let sizeId = fallbackSizeId;
+  let fromRule = false;
   for (const rule of profileScheme.rules) {
     if (rule.scope === 'field' && (rule.legIndex !== legIndex || rule.fieldIndex !== fieldIndex)) continue;
     let matches = false;
@@ -146,9 +153,67 @@ export function resolveBoardProfile(
     if (matches) {
       modelId = rule.modelId;
       sizeId = rule.sizeId;
+      fromRule = true;
     }
   }
-  return { modelId, sizeId };
+  return { modelId, sizeId, fromRule };
+}
+
+/**
+ * Builds the ordered candidate list computeBoardStack tries for one step.
+ * An explicit profile rule is absolute — a single candidate, no fallback,
+ * respecting a deliberate manual choice even on the rare step where it
+ * doesn't fit. The leg's own passive default is always tried first; when
+ * no rule matches AND the default doesn't fit the remaining room, every
+ * OTHER model/size in the whole catalog is offered as a fallback too —
+ * confirmed: mixing models/profile types for just that last step is fine,
+ * closing flush matters more than staying single-profile. Fallbacks are
+ * sorted by their own (board + spacer) step size, largest first, so
+ * computeBoardStack's "take the first that fits" naturally picks whichever
+ * one gets closest to the ceiling without going over — recomputed fresh
+ * every render from current geometry, so it never goes stale: moving
+ * baseHeightCm again always re-solves for whatever profile now fits best,
+ * rather than leaving behind a leftover gap from a stale earlier choice.
+ */
+export function resolveBoardStepCandidates(
+  profileScheme: ProfileScheme,
+  legIndex: number,
+  fieldIndex: number,
+  stepIndex: number,
+  fallbackModelId: string,
+  fallbackSizeId: string,
+): ResolvedBoardDims[] {
+  const { modelId, sizeId, fromRule } = resolveBoardProfile(
+    profileScheme,
+    legIndex,
+    fieldIndex,
+    stepIndex,
+    fallbackModelId,
+    fallbackSizeId,
+  );
+  const spacerMultiplier = resolveSpacerMultiplier(profileScheme, legIndex, fieldIndex, stepIndex);
+  const primaryDims = resolveBoardDims(modelId, sizeId);
+  const primary: ResolvedBoardDims = {
+    modelId,
+    sizeId,
+    boardHeightCm: primaryDims.boardHeightCm,
+    spacerHeightCm: primaryDims.spacerHeightCm * spacerMultiplier,
+  };
+
+  if (fromRule) return [primary];
+
+  const alternates: ResolvedBoardDims[] = FENCE_CATALOG.flatMap((model) =>
+    model.sizes
+      .filter((size) => !(model.id === modelId && size.id === sizeId))
+      .map((size) => ({
+        modelId: model.id,
+        sizeId: size.id,
+        boardHeightCm: size.boardHeightCm,
+        spacerHeightCm: size.spacerHeightCm * spacerMultiplier,
+      })),
+  ).sort((a, b) => b.boardHeightCm + b.spacerHeightCm - (a.boardHeightCm + a.spacerHeightCm));
+
+  return [primary, ...alternates];
 }
 
 interface SceneProps {
@@ -165,6 +230,7 @@ interface SceneProps {
     boardCount: number;
     postCount: number;
     doublePostCount: number;
+    fieldCount: number;
   }) => void;
   /** When the caller sets .current = true before a shape change, that ONE
    * change skips the camera reframe it would otherwise trigger (consumed
@@ -196,7 +262,7 @@ const ZOOM_OUT_FACTOR = 1.7;
 const FLY_DURATION_MS = 550;
 const CLICK_MOVE_THRESHOLD_PX = 6;
 const FOCUS_ELEMENT_PADDING = 1.15; // close zoom-in when selecting a step/post — tight enough to actually see it without manual zooming
-const FOCUS_EDIT_PADDING = 1.7; // recent-edit window: closer than full-shape, looser than a single element — reused below for the deselect case too
+const FOCUS_EDIT_PADDING = 1.3; // recent-edit window: closer than full-shape, looser than a single element — reused below for the deselect case too
 const FULL_SHAPE_PADDING = 1.35;
 
 function easeInOutQuad(t: number) {
@@ -261,7 +327,7 @@ export default function Scene({
   onSelectRef.current = onSelect;
   const selectionRef = useRef(selection);
   selectionRef.current = selection;
-  const geometryStatsRef = useRef({ boardCount: 0, postCount: 0, doublePostCount: 0 });
+  const geometryStatsRef = useRef({ boardCount: 0, postCount: 0, doublePostCount: 0, fieldCount: 0 });
 
   const shapeBoundsRef = useRef<FrameTarget>({ centerX: 4, centerY: 0.8, centerZ: 0, radius: 4 });
   const legBoundsRef = useRef<Map<number, { minX: number; maxX: number; minZ: number; maxZ: number; topM: number }>>(
@@ -280,7 +346,8 @@ export default function Scene({
     toDistance: number;
   }>(null);
   const pointerDownRef = useRef<{ x: number; y: number } | null>(null);
-
+  const deselectFlyTimeoutRef = useRef<number | null>(null);
+  const lastAspectRef = useRef<number | null>(null);
   function distanceForTarget(target: FrameTarget, padding: number): number {
     const camera = cameraRef.current;
     const container = containerRef.current;
@@ -305,33 +372,39 @@ export default function Scene({
     controls.maxPolarAngle = DEFAULT_POLAR + POLAR_RANGE;
   }
 
-  function snapTo(target: FrameTarget, padding: number) {
-    const camera = cameraRef.current;
-    const controls = controlsRef.current;
-    if (!camera) return;
-    const distance = distanceForTarget(target, padding);
-    camera.position.set(
-      target.centerX + VIEW_DIRECTION.x * distance,
-      target.centerY + VIEW_DIRECTION.y * distance,
-      target.centerZ + VIEW_DIRECTION.z * distance,
-    );
-    camera.lookAt(target.centerX, target.centerY, target.centerZ);
-    if (controls) {
-      controls.target.set(target.centerX, target.centerY, target.centerZ);
-      applyConstraints(distance);
-      controls.update();
-    }
-    lastFrameTargetRef.current = target;
-    lastPaddingRef.current = padding;
-  }
-
+  /**
+   * Every camera move — instant or animated — goes through this one
+   * function now. There used to be a separate snapTo() that set
+   * camera.position/controls.target directly; it quietly re-implemented
+   * (and kept drifting out of sync with) flyTo's own direction/constraint
+   * logic — preserveAngle existed on one but not the other for a while,
+   * which is exactly what caused the angle-reset bugs. `instant: true`
+   * still animates, technically — it's the same lerp, just given a
+   * startTime already FLY_DURATION_MS in the past, so it resolves to its
+   * destination on the very next frame instead of over FLY_DURATION_MS.
+   */
   function flyTo(
-    target: FrameTarget,
+  target: FrameTarget,
     padding: number,
-    opts?: { relativeToCurrent?: boolean; preserveAngle?: boolean },
+    opts?: { relativeToCurrent?: boolean; preserveAngle?: boolean; instant?: boolean },
   ) {
-    const camera = cameraRef.current;
-    const controls = controlsRef.current;
+    console.log(
+  "🎬 FLY",
+  performance.now().toFixed(0),
+  "padding=",
+  padding,
+  "radius=",
+  target.radius.toFixed(2),
+  "preserveAngle=",
+  opts?.preserveAngle,
+  "relative=",
+  opts?.relativeToCurrent,
+  "instant=",
+  opts?.instant
+);
+
+  const camera = cameraRef.current;
+  const controls = controlsRef.current;
     if (!camera || !controls) return;
 
     const hadDamping = controls.enableDamping;
@@ -363,11 +436,11 @@ export default function Scene({
     const toTarget = new THREE.Vector3(target.centerX, target.centerY, target.centerZ);
     controls.enabled = false;
     flyRef.current = {
-      fromPos: camera.position.clone(),
+      fromPos: opts?.instant ? toPos.clone() : camera.position.clone(),
       toPos,
-      fromTarget: controls.target.clone(),
+      fromTarget: opts?.instant ? toTarget.clone() : controls.target.clone(),
       toTarget,
-      startTime: performance.now(),
+      startTime: opts?.instant ? performance.now() - FLY_DURATION_MS : performance.now(),
       toDistance: distance,
     };
     lastFrameTargetRef.current = target;
@@ -397,7 +470,7 @@ export default function Scene({
     controls.dampingFactor = 0.1;
     controlsRef.current = controls;
 
-    snapTo(shapeBoundsRef.current, FULL_SHAPE_PADDING);
+    flyTo(shapeBoundsRef.current, FULL_SHAPE_PADDING, { instant: true });
 
     const ambient = new THREE.AmbientLight(0xffffff, 0.6);
     const sun = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -574,6 +647,7 @@ export default function Scene({
         const curTarget = new THREE.Vector3().lerpVectors(fly.fromTarget, fly.toTarget, eased);
         controls.target.copy(curTarget);
         camera.lookAt(curTarget);
+        
         if (t >= 1) {
           applyConstraints(fly.toDistance);
           controls.enabled = true;
@@ -602,18 +676,108 @@ export default function Scene({
     };
     animate();
 
+    let resizeRaf: number | null = null;
+
+    const applyResize = () => {
+  resizeRaf = null;
+
+  if (!container || !cameraRef.current) return;
+
+  const camera = cameraRef.current;
+
+  const w = container.clientWidth;
+  const h = container.clientHeight;
+
+  if (w <= 0 || h <= 0) return;
+
+  const newAspect = w / h;
+  const oldAspect = lastAspectRef.current;
+
+  /*
+   * When the workspace changes height, PerspectiveCamera changes
+   * its horizontal FOV. That can make the scene appear to "stretch"
+   * even though camera.position and controls.target did not move.
+   *
+   * Compensate by scaling the camera distance inversely with aspect.
+   *
+   * newDistance = oldDistance * oldAspect / newAspect
+   *
+   * This keeps the horizontal framing visually stable while the
+   * actual Three.js workspace still grows/shrinks normally.
+   */
+  if (
+    oldAspect !== null &&
+    Number.isFinite(oldAspect) &&
+    Number.isFinite(newAspect) &&
+    oldAspect > 0 &&
+    newAspect > 0
+  ) {
+    const distanceRatio = oldAspect / newAspect;
+
+    const controls = controlsRef.current;
+    const fly = flyRef.current;
+
+    /*
+     * Normal camera state:
+     * preserve the current view by scaling the camera offset
+     * around the current OrbitControls target.
+     */
+    if (controls && !fly) {
+      const offset = camera.position.clone().sub(controls.target);
+
+      camera.position.copy(
+        controls.target.clone().add(offset.multiplyScalar(distanceRatio))
+      );
+    }
+
+    /*
+     * If a focus animation is already running, compensate BOTH
+     * ends of the animation. This prevents opening the bottom sheet
+     * during a flyTo() from visually bending/stretching the path.
+     */
+    if (fly) {
+      const fromOffset = fly.fromPos.clone().sub(fly.fromTarget);
+      fly.fromPos.copy(
+        fly.fromTarget.clone().add(fromOffset.multiplyScalar(distanceRatio))
+      );
+
+      const toOffset = fly.toPos.clone().sub(fly.toTarget);
+      fly.toPos.copy(
+        fly.toTarget.clone().add(toOffset.multiplyScalar(distanceRatio))
+      );
+
+      fly.toDistance *= distanceRatio;
+    }
+  }
+
+  /*
+   * Now apply the real new viewport size.
+   * The canvas remains a genuine layout participant.
+   */
+  camera.aspect = newAspect;
+  camera.updateProjectionMatrix();
+
+  renderer.setSize(w, h);
+
+  lastAspectRef.current = newAspect;
+
+  renderer.render(scene, camera);
+};
+
     const handleResize = () => {
-      if (!container || !cameraRef.current) return;
-      cameraRef.current.aspect = container.clientWidth / container.clientHeight;
-      cameraRef.current.updateProjectionMatrix();
-      snapTo(shapeBoundsRef.current, FULL_SHAPE_PADDING);
-      renderer.setSize(container.clientWidth, container.clientHeight);
+      // Coalesce a burst of ResizeObserver notifications into at most one
+      // actual resize per animation frame, instead of running the full
+      // resize/paint work synchronously for every single one of them.
+      if (resizeRaf !== null) return;
+      resizeRaf = requestAnimationFrame(applyResize);
     };
-    window.addEventListener('resize', handleResize);
+    const resizeObserver = new ResizeObserver(handleResize);
+    resizeObserver.observe(container);
 
     return () => {
       cancelAnimationFrame(rafId);
-      window.removeEventListener('resize', handleResize);
+      if (resizeRaf !== null) cancelAnimationFrame(resizeRaf);
+      resizeObserver.disconnect();
       renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
       renderer.domElement.removeEventListener('pointerup', handlePointerUp);
       controls.dispose();
@@ -677,6 +841,16 @@ export default function Scene({
 
     const postThicknessM = POST_THICKNESS_CM / 100;
     const boardThicknessM = BOARD_THICKNESS_CM / 100;
+    const accessoryWidthM = postThicknessM * POST_ACCESSORY_WIDTH_MULTIPLIER;
+    const rosetteHeightM = ROSETTE_OFFSET_CM / 100;
+    const capHeightM = POST_CAP_HEIGHT_CM / 100;
+    const capRadiusM = postThicknessM / 2;
+    // A flat dome: just the top hemisphere (thetaLength = PI/2 sweeps from
+    // the pole down to the equator), squashed in Y per-mesh below so its
+    // apex sits only capHeightM above the post's top instead of a full
+    // hemisphere's height (= its own radius). Built once and reused for
+    // every post — same geometry, only position/scale differ per post.
+    const capGeo = new THREE.SphereGeometry(capRadiusM, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2);
 
     let totalBoards = 0;
     let totalPosts = 0;
@@ -717,6 +891,28 @@ export default function Scene({
       totalPosts++;
       if (post.isDoublePost) totalDoublePosts++;
 
+      // Rosette: covers the post's base bolting/wall holes, and is the
+      // physical reason the first board starts ROSETTE_OFFSET_CM above the
+      // post's own base rather than right at baseM.
+      const rosetteGeo = new THREE.BoxGeometry(accessoryWidthM, rosetteHeightM, accessoryWidthM);
+      const rosetteMesh = new THREE.Mesh(rosetteGeo, postDisplayMat);
+      rosetteMesh.position.set(post.position.x, baseM + rosetteHeightM / 2, post.position.z);
+      rosetteMesh.rotation.y = -post.heading;
+      rosetteMesh.userData.kind = 'rosette';
+      fenceGroup.add(rosetteMesh);
+
+      // Cap: flat dome sealing the post's grooves at the top so the boards
+      // can't be pulled back out — exactly the post's own width/depth (not
+      // doubled like the rosette), purely cosmetic, sits ABOVE the closing
+      // height and never affects the board stack's own math (confirmed:
+      // there's no reserved top margin at all).
+      const capMesh = new THREE.Mesh(capGeo, postDisplayMat);
+      capMesh.scale.y = capHeightM / capRadiusM;
+      capMesh.position.set(post.position.x, baseM + heightM, post.position.z);
+      capMesh.rotation.y = -post.heading;
+      capMesh.userData.kind = 'cap';
+      fenceGroup.add(capMesh);
+
       minX = Math.min(minX, post.position.x);
       maxX = Math.max(maxX, post.position.x);
       minZ = Math.min(minZ, post.position.z);
@@ -732,24 +928,9 @@ export default function Scene({
       // (The old `* 0.96` heuristic wasn't tied to actual post thickness, so
       // the gap it left grew right along with field length.)
       const boardLengthM = Math.max(0.05, field.lengthM - postThicknessM);
-      const boardStack = computeBoardStack(field.fillHeightCm, (stepIndex) => {
-        const { modelId, sizeId } = resolveBoardProfile(
-          profileScheme,
-          field.legIndex,
-          field.index,
-          stepIndex,
-          leg.modelId,
-          leg.sizeId,
-        );
-        const dims = resolveBoardDims(modelId, sizeId);
-        const spacerMultiplier = resolveSpacerMultiplier(profileScheme, field.legIndex, field.index, stepIndex);
-        return {
-          modelId,
-          sizeId,
-          boardHeightCm: dims.boardHeightCm,
-          spacerHeightCm: dims.spacerHeightCm * spacerMultiplier,
-        };
-      });
+      const boardStack = computeBoardStack(field.fillHeightCm, (stepIndex) =>
+        resolveBoardStepCandidates(profileScheme, field.legIndex, field.index, stepIndex, leg.modelId, leg.sizeId),
+      );
       const baseM = field.baseHeightCm / 100;
       for (const board of boardStack.boards) {
         const boardAbsHeightCm = field.baseHeightCm + board.centerCm;
@@ -782,6 +963,7 @@ export default function Scene({
       boardCount: totalBoards,
       postCount: totalPosts,
       doublePostCount: totalDoublePosts,
+      fieldCount: layout.fields.length,
     };
 
     if (!isFinite(minX)) {
@@ -803,7 +985,7 @@ export default function Scene({
     if (skipNextFocusRef) skipNextFocusRef.current = false;
 
     if (isFirstBuild) {
-      snapTo(fullBounds, FULL_SHAPE_PADDING);
+      flyTo(fullBounds, FULL_SHAPE_PADDING, { instant: true });
       prevSelectionRef.current = selection;
       return;
     }
@@ -825,10 +1007,29 @@ export default function Scene({
         // stepping back from the same viewpoint you were already at reads
         // as a small, continuous move, and makes it easy to mentally retrace
         // your way back to the step you were just on.
-        flyTo(lastFrameTargetRef.current ?? fullBounds, FOCUS_EDIT_PADDING, {
-          relativeToCurrent: false,
-          preserveAngle: true,
-        });
+        //
+        // Deselecting also closes the step-edit sheet, which (via CSS) grows
+        // scene-canvas-wrap back to full size over ~0.3s rather than
+        // instantly — so the container is still mid-transition, near its OLD
+        // small size, at the exact moment this effect runs. Computing the
+        // fly distance right now would size it for that transient small
+        // viewport, not the one it'll actually be flying into, which showed
+        // up as a wild zoom-out overshoot right as the sheet closed. Waiting
+        // for the resize to settle first means the distance math runs
+        // against the real final size instead.
+        deselectFlyTimeoutRef.current = window.setTimeout(() => {
+          deselectFlyTimeoutRef.current = null;
+          flyTo(lastFrameTargetRef.current ?? fullBounds, FOCUS_EDIT_PADDING, {
+            relativeToCurrent: false,
+            preserveAngle: true,
+          });
+        }, 180);
+        return () => {
+          if (deselectFlyTimeoutRef.current !== null) {
+            window.clearTimeout(deselectFlyTimeoutRef.current);
+            deselectFlyTimeoutRef.current = null;
+          }
+        };
       }
       return;
     }

@@ -9,11 +9,13 @@ import Scene, {
   resolveBoardColorHex,
   resolveBoardProfile,
   resolveSpacerMultiplier,
+  resolveBoardStepCandidates,
 } from './scene/Scene';
 import type { Shape, Leg, Junction } from './geometry/shape';
+import { fieldCountForLeg } from './geometry/shape';
 import { DEFAULT_MODEL_ID, DEFAULT_SIZE_ID, FENCE_CATALOG, resolveBoardDims } from './geometry/catalog';
-import { MAX_FIELD_LENGTH_M } from './geometry/constants';
 import { computeBoardStack } from './geometry/field';
+import { ROSETTE_OFFSET_CM } from './geometry/constants';
 import './App.css';
 
 const FENCE_COLORS = [
@@ -30,9 +32,27 @@ const JUNCTION_LABELS: Record<Junction['type'], string> = {
   disconnect: 'נתק',
 };
 
+/** Height (cm) for exactly `boardCount` boards of the given dims, starting
+ * from baseHeightCm — same arithmetic as HeightSnapSlider's own valid-height
+ * grid (one board, then +[boardHeightCm+spacerHeightCm] per extra board). */
+function heightForBoardCount(baseHeightCm: number, boardCount: number, boardHeightCm: number, spacerHeightCm: number): number {
+  const oneBoardCm = baseHeightCm + ROSETTE_OFFSET_CM + boardHeightCm;
+  const stepCm = boardHeightCm + spacerHeightCm;
+  return oneBoardCm + (Math.max(1, boardCount) - 1) * stepCm;
+}
+
 function defaultShape(): Shape {
+  const dims = resolveBoardDims(DEFAULT_MODEL_ID, DEFAULT_SIZE_ID);
   return {
-    legs: [{ lengthM: 6, baseHeightCm: 0, heightCm: 120, modelId: DEFAULT_MODEL_ID, sizeId: DEFAULT_SIZE_ID }],
+    legs: [
+      {
+        lengthM: 6,
+        baseHeightCm: 0,
+        heightCm: heightForBoardCount(0, 14, dims.boardHeightCm, dims.spacerHeightCm),
+        modelId: DEFAULT_MODEL_ID,
+        sizeId: DEFAULT_SIZE_ID,
+      },
+    ],
     junctions: [],
   };
 }
@@ -289,6 +309,131 @@ function PrecisionSlider({
   );
 }
 
+/**
+ * Closing height, confirmed to always snap to an exact board-stack total —
+ * no fine-precision mode here (unlike base height): any sub-board offset
+ * would reintroduce the exact top gap this is meant to eliminate.
+ *
+ * Consecutive board counts differ by exactly one board + one spacer, so
+ * valid heights form a plain arithmetic sequence: min = baseHeightCm +
+ * ROSETTE_OFFSET_CM + boardHeightCm (one board), then every +
+ * (boardHeightCm + spacerHeightCm) after that. A native range input
+ * reproduces that on its own via min/step — no discrete snapping logic
+ * needed in the UI. min/max are then nudged onto the nearest valid rung at
+ * or past the practical 60/200cm bounds the coarse height slider used to
+ * use directly.
+ *
+ * The popover here asks for a board COUNT, not a height — guaranteeing
+ * validity by construction rather than by clamping a typed decimal.
+ */
+function HeightSnapSlider({
+  label,
+  leg,
+  boardHeightCm,
+  spacerHeightCm,
+  onChangeHeight,
+}: {
+  label: string;
+  leg: Leg;
+  boardHeightCm: number;
+  spacerHeightCm: number;
+  onChangeHeight: (heightCm: number) => void;
+}) {
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorCount, setEditorCount] = useState('1');
+  const countInputRef = useRef<HTMLInputElement | null>(null);
+
+  const FLOOR_CM = 60;
+  const CEIL_CM = 200;
+  const stepCm = boardHeightCm + spacerHeightCm;
+  const oneBoardCm = leg.baseHeightCm + ROSETTE_OFFSET_CM + boardHeightCm;
+  const stepsToFloor = Math.max(0, Math.ceil((FLOOR_CM - oneBoardCm) / stepCm));
+  const minCm = oneBoardCm + stepsToFloor * stepCm;
+  const stepsToCeil = Math.max(0, Math.floor((CEIL_CM - oneBoardCm) / stepCm));
+  const maxCm = Math.max(minCm, oneBoardCm + stepsToCeil * stepCm);
+
+  const boardCount = Math.max(1, Math.round((leg.heightCm - oneBoardCm) / stepCm) + 1);
+
+  function openEditor() {
+    setEditorCount(String(boardCount));
+    setEditorOpen(true);
+  }
+
+  useEffect(() => {
+    if (editorOpen) {
+      countInputRef.current?.focus();
+      countInputRef.current?.select();
+    }
+  }, [editorOpen]);
+
+  function applyEditor() {
+    const n = Math.max(1, Math.round(Number(editorCount) || 1));
+    onChangeHeight(oneBoardCm + (n - 1) * stepCm);
+    setEditorOpen(false);
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Enter') applyEditor();
+    else if (e.key === 'Escape') setEditorOpen(false);
+  }
+
+  return (
+    <div className="leg-row">
+      <button
+        type="button"
+        className="value-trigger"
+        onClick={openEditor}
+        title="הזנה ידנית"
+        aria-label={`הזנה ידנית — ${label}`}
+      >
+        {label}: {formatTrimmed(leg.heightCm, 1)} ס״מ ({boardCount} שלבים)
+      </button>
+
+      {editorOpen && (
+        <>
+          <div className="value-popover-backdrop" onClick={() => setEditorOpen(false)} />
+          <div className="value-popover" onKeyDown={handleKeyDown} role="dialog" aria-label={`הזנה ידנית — ${label}`}>
+            <div className="value-popover-title">{label} — מספר שלבים</div>
+            <div className="value-popover-fields">
+              <span className="value-popover-field-group">
+                <input
+                  ref={countInputRef}
+                  type="number"
+                  min={1}
+                  step={1}
+                  className="value-popover-input"
+                  value={editorCount}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => setEditorCount(e.target.value.replace(/[^\d]/g, ''))}
+                />
+                <span className="value-popover-unit">שלבים</span>
+              </span>
+            </div>
+            <div className="value-popover-hint">הגובה תמיד ייצמד למספר שלם של שלבים — אין פער בקצה העליון</div>
+            <div className="value-popover-actions">
+              <button type="button" className="value-popover-apply" onClick={applyEditor}>
+                החל
+              </button>
+              <button type="button" className="value-popover-cancel" onClick={() => setEditorOpen(false)}>
+                ביטול
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      <input
+        type="range"
+        min={minCm}
+        max={maxCm}
+        step={stepCm}
+        value={leg.heightCm}
+        onChange={(e) => onChangeHeight(Number(e.target.value))}
+      />
+    </div>
+  );
+}
+
 export default function App() {
   const [shape, setShape] = useState<Shape>(defaultShape());
   const [colorScheme, setColorScheme] = useState<ColorScheme>(defaultColorScheme());
@@ -344,7 +489,6 @@ export default function App() {
   type Precision = { fine: number; on: boolean };
   const [lengthPrecision, setLengthPrecision] = useState<Record<number, Precision>>({});
   const [baseHeightPrecision, setBaseHeightPrecision] = useState<Record<number, Precision>>({});
-  const [heightPrecision, setHeightPrecision] = useState<Record<number, Precision>>({});
 
   function getPrecision(map: Record<number, Precision>, legIndex: number): Precision {
     return map[legIndex] ?? { fine: 0, on: false };
@@ -423,13 +567,14 @@ export default function App() {
   function handleDragEnd() {
     dragStartRef.current = null;
   }
-  const [stats, setStats] = useState({
+    const [stats, setStats] = useState({
     fps: 0,
     drawCalls: 0,
     triangles: 0,
     boardCount: 0,
     postCount: 0,
     doublePostCount: 0,
+    fieldCount: 0,
   });
 
   function updateLeg(legIndex: number, updater: (leg: Leg) => Leg) {
@@ -439,16 +584,24 @@ export default function App() {
     }));
   }
 
-  function fieldCountFor(lengthM: number) {
-    return Math.max(1, Math.ceil(lengthM / MAX_FIELD_LENGTH_M));
+  // Which of this leg's own two ends is a shared "middle" post (boards
+  // emerge from both faces — a straight/left/right junction to a
+  // neighboring leg) vs. a true "end" post (one face only — either edge of
+  // the whole shape, or either side of a 'disconnect') decides its segment
+  // margin in the real field-count formula. Same split shape.ts's
+  // layoutShape already uses to decide isDoublePost.
+  function fieldCountForLegAt(legIndex: number, lengthM: number): number {
+    const startIsMiddle = legIndex > 0 && shape.junctions[legIndex - 1]?.type !== 'disconnect';
+    const endIsMiddle = legIndex < shape.legs.length - 1 && shape.junctions[legIndex]?.type !== 'disconnect';
+    return fieldCountForLeg(lengthM, startIsMiddle, endIsMiddle);
   }
 
   // Length is the only leg input that changes how many fields the leg
   // splits into — when it grows past a split point, every NEW field starts
   // as a copy of the previous last field's pattern (confirmed behavior).
   function updateLegLength(legIndex: number, newLengthM: number) {
-    const oldCount = fieldCountFor(shape.legs[legIndex].lengthM);
-    const newCount = fieldCountFor(newLengthM);
+    const oldCount = fieldCountForLegAt(legIndex, shape.legs[legIndex].lengthM);
+    const newCount = fieldCountForLegAt(legIndex, newLengthM);
     updateLeg(legIndex, (l) => ({ ...l, lengthM: newLengthM }));
     if (newCount > oldCount) {
       const newIndexes: number[] = [];
@@ -467,7 +620,7 @@ export default function App() {
   function addLeg() {
     const lastLegIndex = shape.legs.length - 1;
     const lastLeg = shape.legs[lastLegIndex];
-    const lastFieldIndex = fieldCountFor(lastLeg.lengthM) - 1;
+    const lastFieldIndex = fieldCountForLegAt(lastLegIndex, lastLeg.lengthM) - 1;
     setShape((prev) => {
       const last = prev.legs[prev.legs.length - 1];
       return {
@@ -485,11 +638,20 @@ export default function App() {
       };
     });
     // New leg = continuation of the shape: its fields inherit the pattern
-    // of the field they extend from (the previous leg's last field).
-    const newLegFieldCount = fieldCountFor(3);
+    // of the field they extend from (the previous leg's last field). The
+    // new leg's own start is a middle post (it's about to be joined to
+    // lastLeg by a 'straight' junction above) and its end is a true shape
+    // end (nothing after it yet) — can't use fieldCountForLegAt here since
+    // this leg doesn't exist in `shape` yet.
+    const newLegFieldCount = fieldCountForLeg(3, true, false);
     const newIndexes: number[] = [];
     for (let f = 0; f < newLegFieldCount; f++) newIndexes.push(f);
     cloneFieldProfileRules(lastLegIndex, lastFieldIndex, lastLegIndex + 1, newIndexes);
+    // Accordion, not a pile-up: closes whatever was open and opens only
+    // the leg just added, so the panel never shows more than one
+    // expanded leg at a time — keeps the order readable as the shape
+    // grows instead of leaving every past leg expanded underneath.
+    setExpandedLegIndices(new Set([lastLegIndex + 1]));
   }
 
   function removeLastLeg() {
@@ -753,19 +915,9 @@ export default function App() {
     const sourceLeg = shape.legs[sourceLegIndex];
     const sourceFillHeightCm = sourceLeg.heightCm - sourceLeg.baseHeightCm;
 
-    const sourceStack = computeBoardStack(sourceFillHeightCm, (stepIndex) => {
-      const { modelId, sizeId } = resolveBoardProfile(
-        profileScheme,
-        sourceLegIndex,
-        sourceFieldIndex,
-        stepIndex,
-        sourceLeg.modelId,
-        sourceLeg.sizeId,
-      );
-      const dims = resolveBoardDims(modelId, sizeId);
-      const spacerMultiplier = resolveSpacerMultiplier(profileScheme, sourceLegIndex, sourceFieldIndex, stepIndex);
-      return { modelId, sizeId, boardHeightCm: dims.boardHeightCm, spacerHeightCm: dims.spacerHeightCm * spacerMultiplier };
-    });
+    const sourceStack = computeBoardStack(sourceFillHeightCm, (stepIndex) =>
+      resolveBoardStepCandidates(profileScheme, sourceLegIndex, sourceFieldIndex, stepIndex, sourceLeg.modelId, sourceLeg.sizeId),
+    );
 
     if (sourceStack.boards.length === 0) return;
 
@@ -774,7 +926,7 @@ export default function App() {
     const newColorRules: BoardColorRule[] = [];
 
     shape.legs.forEach((targetLeg, targetLegIndex) => {
-      const targetFieldCount = fieldCountFor(targetLeg.lengthM);
+      const targetFieldCount = fieldCountForLegAt(targetLegIndex, targetLeg.lengthM);
       for (let targetFieldIndex = 0; targetFieldIndex < targetFieldCount; targetFieldIndex++) {
         if (targetLegIndex === sourceLegIndex && targetFieldIndex === sourceFieldIndex) continue;
         for (const board of sourceStack.boards) {
@@ -868,45 +1020,52 @@ export default function App() {
   return (
     <div className="app">
       <div className="scene-area">
-        <Scene
-          shape={shape}
-          colorScheme={colorScheme}
-          profileScheme={profileScheme}
-          selection={selection}
-          onSelect={setSelection}
-          onStats={setStats}
-          skipNextFocusRef={skipNextFocusRef}
-          legCameraFocus={legCameraFocus}
-        />
-        <div className="stats-badge">
-          <div>{stats.fps} FPS</div>
-          <div>{stats.drawCalls} draw calls</div>
-          <div>{stats.triangles.toLocaleString()} triangles</div>
-        </div>
-
-        <div className="history-controls">
-          <button
-            className={undoPulse ? 'history-btn history-btn-pulse' : 'history-btn'}
-            onClick={undo}
-            disabled={!canUndo}
-            title="בטל (Ctrl+Z)"
-          >
-            ↶
-          </button>
-          <button className="history-btn" onClick={redo} disabled={!canRedo} title="בצע שוב (Ctrl+Y)">
-            ↷
-          </button>
-        </div>
-
-        {applyFenceToast && (
-          <div className="toast">
-            <span className="toast-message">העיצוב של השדה הוחל על כל הגדר</span>
-            <button className="toast-undo" onClick={undoApplyFenceToast}>
-              בטל ↺
-            </button>
-            {applyFenceToast.showHint && <div className="toast-hint">תמיד אפשר לבטל שינויים גדולים</div>}
+        <div className="scene-canvas-wrap">
+          <Scene
+            shape={shape}
+            colorScheme={colorScheme}
+            profileScheme={profileScheme}
+            selection={selection}
+onSelect={(nextSelection) => {
+  console.log("🎯 SELECTION CHANGE", performance.now().toFixed(0), {
+    from: selection,
+    to: nextSelection,
+  });
+  setSelection(nextSelection);
+}}            onStats={setStats}
+            skipNextFocusRef={skipNextFocusRef}
+            legCameraFocus={legCameraFocus}
+          />
+          <div className="stats-badge">
+            <div>{stats.fps} FPS</div>
+            <div>{stats.drawCalls} draw calls</div>
+            <div>{stats.triangles.toLocaleString()} triangles</div>
           </div>
-        )}
+
+          <div className="history-controls">
+            <button
+              className={undoPulse ? 'history-btn history-btn-pulse' : 'history-btn'}
+              onClick={undo}
+              disabled={!canUndo}
+              title="בטל (Ctrl+Z)"
+            >
+              ↶
+            </button>
+            <button className="history-btn" onClick={redo} disabled={!canRedo} title="בצע שוב (Ctrl+Y)">
+              ↷
+            </button>
+          </div>
+
+          {applyFenceToast && (
+            <div className="toast">
+              <span className="toast-message">העיצוב של השדה הוחל על כל הגדר</span>
+              <button className="toast-undo" onClick={undoApplyFenceToast}>
+                בטל ↺
+              </button>
+              {applyFenceToast.showHint && <div className="toast-hint">תמיד אפשר לבטל שינויים גדולים</div>}
+            </div>
+          )}
+        </div>
 
         {selection?.kind === 'post' && (
           <div className="bottom-sheet" style={{ height: sheetHeight }}>
@@ -1120,12 +1279,10 @@ export default function App() {
               </div>
             </div>
 
-            </div>
+            <button type="button" className="apply-fence-btn" onClick={applyFieldToEntireFence}>
+              החל שדה זה על כל הגדר
+            </button>
 
-            <div className="apply-fence-footer">
-              <button type="button" className="apply-fence-btn" onClick={applyFieldToEntireFence}>
-                החל שדה זה על כל הגדר
-              </button>
             </div>
 
             </div>
@@ -1170,10 +1327,10 @@ export default function App() {
                   className="segment-header segment-header-toggle"
                   onClick={() => toggleLeg(legIndex)}
                 >
-                  <span>רגל {legIndex + 1}</span>
+                  <span>מקטע {legIndex + 1}</span>
                   {!isOpen && (
                     <span className="segment-summary">
-                      אורך {leg.lengthM.toFixed(1)} מ׳ · סגירה {Math.round(leg.heightCm)} ס״מ
+                      אורך {leg.lengthM.toFixed(1)} מ׳ · גובה  {Math.round(leg.heightCm)} ס״מ
                     </span>
                   )}
                   <span className={isOpen ? 'segment-caret segment-caret-open' : 'segment-caret'}>
@@ -1230,26 +1387,12 @@ export default function App() {
                       }}
                     />
 
-                    <PrecisionSlider
-                      mode="height"
-                      className="leg-row"
-                      label="גובה סגירה"
-                      min={60}
-                      max={200}
-                      step={1}
-                      value={leg.heightCm}
-                      fineValue={getPrecision(heightPrecision, legIndex).fine}
-                      precisionOn={getPrecision(heightPrecision, legIndex).on}
-                      onChangeValue={(v) => updateLeg(legIndex, (l) => ({ ...l, heightCm: v }))}
-                      onChangeFineValue={(f) =>
-                        setHeightPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), fine: f } }))
-                      }
-                      onTogglePrecision={(on) =>
-                        setHeightPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), on } }))
-                      }
-                      onFineAdjust={() => {
-                        skipNextFocusRef.current = true;
-                      }}
+                    <HeightSnapSlider
+                      label="גובה גדר"
+                      leg={leg}
+                      boardHeightCm={resolveBoardDims(leg.modelId, leg.sizeId).boardHeightCm}
+                      spacerHeightCm={resolveBoardDims(leg.modelId, leg.sizeId).spacerHeightCm}
+                      onChangeHeight={(v) => updateLeg(legIndex, (l) => ({ ...l, heightCm: v }))}
                     />
                   </>
                 )}
@@ -1286,16 +1429,18 @@ export default function App() {
 
         <div className="summary">
           <div>
+            <span>שלבים</span>
+            <strong>{stats.boardCount}</strong>
+            <span>(פרופילים)</span>
+          </div>
+          <div>
             <span>עמודים</span>
             <strong>{stats.postCount}</strong>
+            <span>({stats.doublePostCount} כפולים)</span>
           </div>
           <div>
-            <span>עמודים כפולים</span>
-            <strong>{stats.doublePostCount}</strong>
-          </div>
-          <div>
-            <span>לוחות</span>
-            <strong>{stats.boardCount}</strong>
+            <span>שדות</span>
+            <strong>{stats.fieldCount}</strong>
           </div>
         </div>
 
