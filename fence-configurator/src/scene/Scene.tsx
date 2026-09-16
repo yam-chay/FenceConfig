@@ -16,14 +16,14 @@ import {
 export type Selection =
   | { kind: 'post' }
   | {
-      kind: 'board';
-      legIndex: number;
-      fieldIndex: number;
-      heightCm: number;
-      stepIndex: number;
-      stepIndices: number[];
-      stepHeights: Record<number, number>;
-    };
+    kind: 'board';
+    legIndex: number;
+    fieldIndex: number;
+    heightCm: number;
+    stepIndex: number;
+    stepIndices: number[];
+    stepHeights: Record<number, number>;
+  };
 
 /**
  * One coloring action, in the order it was taken. Later rules override
@@ -347,6 +347,12 @@ export default function Scene({
   }>(null);
   const pointerDownRef = useRef<{ x: number; y: number } | null>(null);
   const deselectFlyTimeoutRef = useRef<number | null>(null);
+
+  const PANEL_OPEN_DISTANCE_FACTOR: number = 0.95;
+  const PANEL_CLOSE_DISTANCE_FACTOR: number = 1.08;
+
+  const PANEL_OPEN_ANGLE_OFFSET: number = 1.0;
+  const PANEL_CLOSE_ANGLE_OFFSET: number = -1.0;
   const lastAspectRef = useRef<number | null>(null);
   function distanceForTarget(target: FrameTarget, padding: number): number {
     const camera = cameraRef.current;
@@ -384,27 +390,27 @@ export default function Scene({
    * destination on the very next frame instead of over FLY_DURATION_MS.
    */
   function flyTo(
-  target: FrameTarget,
+    target: FrameTarget,
     padding: number,
     opts?: { relativeToCurrent?: boolean; preserveAngle?: boolean; instant?: boolean },
   ) {
     console.log(
-  "🎬 FLY",
-  performance.now().toFixed(0),
-  "padding=",
-  padding,
-  "radius=",
-  target.radius.toFixed(2),
-  "preserveAngle=",
-  opts?.preserveAngle,
-  "relative=",
-  opts?.relativeToCurrent,
-  "instant=",
-  opts?.instant
-);
+      "🎬 FLY",
+      performance.now().toFixed(0),
+      "padding=",
+      padding,
+      "radius=",
+      target.radius.toFixed(2),
+      "preserveAngle=",
+      opts?.preserveAngle,
+      "relative=",
+      opts?.relativeToCurrent,
+      "instant=",
+      opts?.instant
+    );
 
-  const camera = cameraRef.current;
-  const controls = controlsRef.current;
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
     if (!camera || !controls) return;
 
     const hadDamping = controls.enableDamping;
@@ -647,7 +653,7 @@ export default function Scene({
         const curTarget = new THREE.Vector3().lerpVectors(fly.fromTarget, fly.toTarget, eased);
         controls.target.copy(curTarget);
         camera.lookAt(curTarget);
-        
+
         if (t >= 1) {
           applyConstraints(fly.toDistance);
           controls.enabled = true;
@@ -679,90 +685,109 @@ export default function Scene({
     let resizeRaf: number | null = null;
 
     const applyResize = () => {
-  resizeRaf = null;
+      resizeRaf = null;
 
-  if (!container || !cameraRef.current) return;
+      if (!container || !cameraRef.current) return;
 
-  const camera = cameraRef.current;
+      const camera = cameraRef.current;
 
-  const w = container.clientWidth;
-  const h = container.clientHeight;
+      const w = container.clientWidth;
+      const h = container.clientHeight;
 
-  if (w <= 0 || h <= 0) return;
+      if (w <= 0 || h <= 0) return;
 
-  const newAspect = w / h;
-  const oldAspect = lastAspectRef.current;
+      const newAspect = w / h;
+      const oldAspect = lastAspectRef.current;
 
-  /*
-   * When the workspace changes height, PerspectiveCamera changes
-   * its horizontal FOV. That can make the scene appear to "stretch"
-   * even though camera.position and controls.target did not move.
-   *
-   * Compensate by scaling the camera distance inversely with aspect.
-   *
-   * newDistance = oldDistance * oldAspect / newAspect
-   *
-   * This keeps the horizontal framing visually stable while the
-   * actual Three.js workspace still grows/shrinks normally.
-   */
-  if (
-    oldAspect !== null &&
-    Number.isFinite(oldAspect) &&
-    Number.isFinite(newAspect) &&
-    oldAspect > 0 &&
-    newAspect > 0
-  ) {
-    const distanceRatio = oldAspect / newAspect;
+      /*
+       * When the workspace changes height, PerspectiveCamera changes
+       * its horizontal FOV. That can make the scene appear to "stretch"
+       * even though camera.position and controls.target did not move.
+       *
+       * Compensate by scaling the camera distance inversely with aspect.
+       *
+       * newDistance = oldDistance * oldAspect / newAspect
+       *
+       * This keeps the horizontal framing visually stable while the
+       * actual Three.js workspace still grows/shrinks normally.
+       */
+      if (
+        oldAspect !== null &&
+        Number.isFinite(oldAspect) &&
+        Number.isFinite(newAspect) &&
+        oldAspect > 0 &&
+        newAspect > 0
+      ) {
+        const isOpening = newAspect > oldAspect;
 
-    const controls = controlsRef.current;
-    const fly = flyRef.current;
+        const distanceFactor = isOpening
+          ? PANEL_OPEN_DISTANCE_FACTOR
+          : PANEL_CLOSE_DISTANCE_FACTOR;
 
-    /*
-     * Normal camera state:
-     * preserve the current view by scaling the camera offset
-     * around the current OrbitControls target.
-     */
-    if (controls && !fly) {
-      const offset = camera.position.clone().sub(controls.target);
+        const angleOffset = isOpening
+          ? PANEL_OPEN_ANGLE_OFFSET
+          : PANEL_CLOSE_ANGLE_OFFSET;
 
-      camera.position.copy(
-        controls.target.clone().add(offset.multiplyScalar(distanceRatio))
-      );
-    }
+        const distanceRatio = (oldAspect / newAspect) * distanceFactor;
 
-    /*
-     * If a focus animation is already running, compensate BOTH
-     * ends of the animation. This prevents opening the bottom sheet
-     * during a flyTo() from visually bending/stretching the path.
-     */
-    if (fly) {
-      const fromOffset = fly.fromPos.clone().sub(fly.fromTarget);
-      fly.fromPos.copy(
-        fly.fromTarget.clone().add(fromOffset.multiplyScalar(distanceRatio))
-      );
+        const controls = controlsRef.current;
+        const fly = flyRef.current;
 
-      const toOffset = fly.toPos.clone().sub(fly.toTarget);
-      fly.toPos.copy(
-        fly.toTarget.clone().add(toOffset.multiplyScalar(distanceRatio))
-      );
+        /*
+         * Normal camera state:
+         * preserve the current view by scaling the camera offset
+         * around the current OrbitControls target.
+         */
+        if (controls && !fly) {
+          const offset = camera.position.clone().sub(controls.target);
 
-      fly.toDistance *= distanceRatio;
-    }
-  }
+          offset.multiplyScalar(distanceRatio);
 
-  /*
-   * Now apply the real new viewport size.
-   * The canvas remains a genuine layout participant.
-   */
-  camera.aspect = newAspect;
-  camera.updateProjectionMatrix();
+          if (angleOffset !== 0) {
+            offset.applyAxisAngle(
+              new THREE.Vector3(0, 1, 0),
+              THREE.MathUtils.degToRad(angleOffset)
+            );
+          }
 
-  renderer.setSize(w, h);
+          camera.position.copy(
+            controls.target.clone().add(offset)
+          );
+        }
 
-  lastAspectRef.current = newAspect;
+        /*
+         * If a focus animation is already running, compensate BOTH
+         * ends of the animation. This prevents opening the bottom sheet
+         * during a flyTo() from visually bending/stretching the path.
+         */
+        if (fly) {
+          const fromOffset = fly.fromPos.clone().sub(fly.fromTarget);
+          fly.fromPos.copy(
+            fly.fromTarget.clone().add(fromOffset.multiplyScalar(distanceRatio))
+          );
 
-  renderer.render(scene, camera);
-};
+          const toOffset = fly.toPos.clone().sub(fly.toTarget);
+          fly.toPos.copy(
+            fly.toTarget.clone().add(toOffset.multiplyScalar(distanceRatio))
+          );
+
+          fly.toDistance *= distanceRatio;
+        }
+      }
+
+      /*
+       * Now apply the real new viewport size.
+       * The canvas remains a genuine layout participant.
+       */
+      camera.aspect = newAspect;
+      camera.updateProjectionMatrix();
+
+      renderer.setSize(w, h);
+
+      lastAspectRef.current = newAspect;
+
+      renderer.render(scene, camera);
+    };
 
     const handleResize = () => {
       // Coalesce a burst of ResizeObserver notifications into at most one
@@ -786,7 +811,7 @@ export default function Scene({
     };
   }, []);
 
-    // Rebuild the procedural geometry whenever the live shape/colors/selection
+  // Rebuild the procedural geometry whenever the live shape/colors/selection
   // change. Only resets the in-progress fly/controls when SHAPE actually
   // changed — a color pick or a click-to-select must never cancel the
   // fly-to-focus animation that a click just started.
@@ -835,7 +860,7 @@ export default function Scene({
       }
       return mat;
     }
-        function resolveHex(legIndex: number, fieldIndex: number, heightCm: number): string {
+    function resolveHex(legIndex: number, fieldIndex: number, heightCm: number): string {
       return resolveBoardColorHex(colorScheme, legIndex, fieldIndex, heightCm);
     }
 
