@@ -287,6 +287,24 @@
   flex-wrap: wrap;
 }
 
+.junction-row {
+  margin: -6px 0 14px 0;
+  flex-wrap: wrap;
+}
+
+.junction-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  direction: rtl;
+}
+
+.junction-controls .pill {
+  padding: 4px 12px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .junction-divider {
   position: relative;
   display: flex;

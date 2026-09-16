@@ -1027,7 +1027,9 @@ export default function App() {
             profileScheme={profileScheme}
             selection={selection}
             onSelect={(nextSelection) => {
-            }} onStats={setStats}
+              setSelection(nextSelection);
+            }}
+            onStats={setStats}
             skipNextFocusRef={skipNextFocusRef}
             legCameraFocus={legCameraFocus}
           />
@@ -1400,7 +1402,11 @@ export default function App() {
                         <button
                           key={t}
                           type="button"
-                          className={shape.junctions[legIndex].type === t ? 'pill active' : 'pill'}
+                          className={
+                            shape.junctions[legIndex].type === t
+                              ? 'pill active'
+                              : 'pill'
+                          }
                           onClick={() => setJunction(legIndex, t)}
                         >
                           {JUNCTION_LABELS[t]}
