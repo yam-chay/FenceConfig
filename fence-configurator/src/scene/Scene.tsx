@@ -348,11 +348,11 @@ export default function Scene({
   const pointerDownRef = useRef<{ x: number; y: number } | null>(null);
   const deselectFlyTimeoutRef = useRef<number | null>(null);
 
-  const PANEL_OPEN_DISTANCE_FACTOR: number = 0.95;
-  const PANEL_CLOSE_DISTANCE_FACTOR: number = 1.08;
+  const PANEL_OPEN_DISTANCE_FACTOR: number = 1;
+  const PANEL_CLOSE_DISTANCE_FACTOR: number = 1;
 
-  const PANEL_OPEN_ANGLE_OFFSET: number = 1.0;
-  const PANEL_CLOSE_ANGLE_OFFSET: number = -1.0;
+  const PANEL_OPEN_ANGLE_OFFSET: number = 0;
+  const PANEL_CLOSE_ANGLE_OFFSET: number = 0;
   const lastAspectRef = useRef<number | null>(null);
   function distanceForTarget(target: FrameTarget, padding: number): number {
     const camera = cameraRef.current;
@@ -394,20 +394,6 @@ export default function Scene({
     padding: number,
     opts?: { relativeToCurrent?: boolean; preserveAngle?: boolean; instant?: boolean },
   ) {
-    console.log(
-      "🎬 FLY",
-      performance.now().toFixed(0),
-      "padding=",
-      padding,
-      "radius=",
-      target.radius.toFixed(2),
-      "preserveAngle=",
-      opts?.preserveAngle,
-      "relative=",
-      opts?.relativeToCurrent,
-      "instant=",
-      opts?.instant
-    );
 
     const camera = cameraRef.current;
     const controls = controlsRef.current;

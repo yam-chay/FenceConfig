@@ -34,7 +34,7 @@
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
-transition: none !important;
+  transition: none !important;
 }
 
 .stats-badge {
@@ -186,7 +186,7 @@ transition: none !important;
   margin-bottom: 16px;
 }
 
-.summary > div {
+.summary>div {
   flex: 1;
   background: #fff;
   border: 1px solid #e2e2e2;
@@ -287,6 +287,67 @@ transition: none !important;
   flex-wrap: wrap;
 }
 
+.junction-divider {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: -2px 0 12px;
+  padding: 2px 0;
+}
+
+.junction-divider::before,
+.junction-divider::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  height: 1px;
+  background: #dfe2e5;
+  transform: translateY(-50%);
+}
+
+.junction-divider::before {
+  right: 0;
+  width: calc(50% - 88px);
+}
+
+.junction-divider::after {
+  left: 0;
+  width: calc(50% - 88px);
+}
+
+.junction-controls {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  direction: rtl;
+  padding: 0 8px;
+  background: var(--panel-bg, #fff);
+}
+
+.junction-controls .pill {
+  padding: 4px 10px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.junction-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  direction: rtl;
+}
+
+.junction-controls .pill {
+  padding: 4px 10px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .panel-mobile-handle,
 .panel-mobile-header {
   display: none;
@@ -308,6 +369,7 @@ transition: none !important;
     margin-bottom: 4px;
   }
 }
+
 .pill {
   border: 2px solid #818181;
   background: #fff;
@@ -555,10 +617,11 @@ transition: none !important;
 }
 
 @media (min-width: 701px) {
+
   /* Desktop: cards sit side by side, so containment (a full box) is what
      signals "this belongs together" — a bottom line wouldn't read as a
      section boundary in a row layout the way it does in a stack. */
-  .sheet-flow > .carousel-row {
+  .sheet-flow>.carousel-row {
     flex: 0 1 auto;
     margin-bottom: 0;
     background: #fff;
@@ -578,13 +641,13 @@ transition: none !important;
      line at the BOTTOM of each section's content (choices, then its
      below/above buttons, then the line) — closing that section off before
      the next one starts, not a box around it. */
-  .sheet-flow > .carousel-row {
+  .sheet-flow>.carousel-row {
     margin-bottom: 16px;
     padding-bottom: 16px;
     border-bottom: 2px solid #818181;
   }
 
-  .sheet-flow > .carousel-row:last-child {
+  .sheet-flow>.carousel-row:last-child {
     margin-bottom: 0;
     padding-bottom: 0;
     border-bottom: none;
@@ -831,6 +894,7 @@ transition: none !important;
     opacity: 0;
     transform: translate(-50%, -6px);
   }
+
   to {
     opacity: 1;
     transform: translate(-50%, 0);
@@ -848,9 +912,11 @@ transition: none !important;
   0% {
     box-shadow: 0 0 0 0 rgba(187, 41, 49, 0.65);
   }
+
   70% {
     box-shadow: 0 0 0 10px rgba(187, 41, 49, 0);
   }
+
   100% {
     box-shadow: 0 0 0 0 rgba(187, 41, 49, 0);
   }

@@ -567,7 +567,7 @@ export default function App() {
   function handleDragEnd() {
     dragStartRef.current = null;
   }
-    const [stats, setStats] = useState({
+  const [stats, setStats] = useState({
     fps: 0,
     drawCalls: 0,
     triangles: 0,
@@ -1026,13 +1026,8 @@ export default function App() {
             colorScheme={colorScheme}
             profileScheme={profileScheme}
             selection={selection}
-onSelect={(nextSelection) => {
-  console.log("🎯 SELECTION CHANGE", performance.now().toFixed(0), {
-    from: selection,
-    to: nextSelection,
-  });
-  setSelection(nextSelection);
-}}            onStats={setStats}
+            onSelect={(nextSelection) => {
+            }} onStats={setStats}
             skipNextFocusRef={skipNextFocusRef}
             legCameraFocus={legCameraFocus}
           />
@@ -1085,20 +1080,20 @@ onSelect={(nextSelection) => {
               </button>
             </div>
             <div className="bottom-sheet-content">
-            <div className="carousel-row">
-              <span className="carousel-label">צבע עמודים</span>
-              <div className="carousel">
-                {FENCE_COLORS.map((c) => (
-                  <button
-                    key={c.hex}
-                    className={colorScheme.postColorHex === c.hex ? 'swatch active' : 'swatch'}
-                    style={{ background: c.hex }}
-                    title={c.name}
-                    onClick={() => setPostColor(c.hex)}
-                  />
-                ))}
+              <div className="carousel-row">
+                <span className="carousel-label">צבע עמודים</span>
+                <div className="carousel">
+                  {FENCE_COLORS.map((c) => (
+                    <button
+                      key={c.hex}
+                      className={colorScheme.postColorHex === c.hex ? 'swatch active' : 'swatch'}
+                      style={{ background: c.hex }}
+                      title={c.name}
+                      onClick={() => setPostColor(c.hex)}
+                    />
+                  ))}
+                </div>
               </div>
-            </div>
             </div>
           </div>
         )}
@@ -1127,163 +1122,163 @@ onSelect={(nextSelection) => {
               </button>
             </div>
             <div className="bottom-sheet-content">
-            <div className="sheet-flow">
+              <div className="sheet-flow">
 
-            <div className="carousel-row">
-              <div className="carousel-label-row">
-                <span className="carousel-label">פרופיל השלב הזה — לחיצה קובעת מיד רק אותו</span>
-                <label className="group-toggle">
-                  <input
-                    type="checkbox"
-                    checked={applyToAllFields}
-                    onChange={(e) => setApplyToAllFields(e.target.checked)}
-                  />
-                  החל על כל השדות
-                </label>
-              </div>
-              <div className="carousel">
-                {FENCE_CATALOG.map((model, i) => (
-                  <button
-                    key={model.id}
-                    className={pendingModelId === model.id ? 'carousel-item active' : 'carousel-item'}
-                    onClick={() => pickBoardProfile(model.id, model.sizes[0].id)}
-                  >
-                    {model.name ?? `סוג ${i + 1}`}
-                  </button>
-                ))}
-              </div>
-              <div className="carousel" style={{ marginTop: 6 }}>
-                {(FENCE_CATALOG.find((m) => m.id === pendingModelId) ?? FENCE_CATALOG[0]).sizes.map((size) => (
-                  <button
-                    key={size.id}
-                    className={pendingSizeId === size.id ? 'carousel-item active' : 'carousel-item'}
-                    onClick={() => pickBoardProfile(pendingModelId, size.id)}
-                  >
-                    {size.name ?? `${size.boardHeightCm}/${size.spacerHeightCm} ס״מ`}
-                  </button>
-                ))}
-              </div>
-              <div className="split-actions">
-                <button
-                  className="text-btn"
-                  onClick={() =>
-                    addProfileRule('below', Math.min(...selection.stepIndices), pendingModelId, pendingSizeId)
-                  }
-                >
-                  מהשלב הזה ומטה ↓
-                </button>
-                <button
-                  className="text-btn"
-                  onClick={() =>
-                    addProfileRule('above', Math.max(...selection.stepIndices), pendingModelId, pendingSizeId)
-                  }
-                >
-                  מהשלב הזה ומעלה ↑
-                </button>
-                {(profileScheme.rules.some(
-                  (r) =>
-                    r.scope === 'field' && r.legIndex === selection.legIndex && r.fieldIndex === selection.fieldIndex,
-                ) ||
-                  profileScheme.spacerRules.some(
-                    (r) =>
-                      r.scope === 'field' && r.legIndex === selection.legIndex && r.fieldIndex === selection.fieldIndex,
-                  )) && (
-                  <button className="text-btn" onClick={() => clearFieldProfile(selection.legIndex, selection.fieldIndex)}>
-                    אפס שדה לברירת המחדל של המקטע ↺
-                  </button>
-                )}
-              </div>
-            </div>
+                <div className="carousel-row">
+                  <div className="carousel-label-row">
+                    <span className="carousel-label">פרופיל השלב הזה — לחיצה קובעת מיד רק אותו</span>
+                    <label className="group-toggle">
+                      <input
+                        type="checkbox"
+                        checked={applyToAllFields}
+                        onChange={(e) => setApplyToAllFields(e.target.checked)}
+                      />
+                      החל על כל השדות
+                    </label>
+                  </div>
+                  <div className="carousel">
+                    {FENCE_CATALOG.map((model, i) => (
+                      <button
+                        key={model.id}
+                        className={pendingModelId === model.id ? 'carousel-item active' : 'carousel-item'}
+                        onClick={() => pickBoardProfile(model.id, model.sizes[0].id)}
+                      >
+                        {model.name ?? `סוג ${i + 1}`}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="carousel" style={{ marginTop: 6 }}>
+                    {(FENCE_CATALOG.find((m) => m.id === pendingModelId) ?? FENCE_CATALOG[0]).sizes.map((size) => (
+                      <button
+                        key={size.id}
+                        className={pendingSizeId === size.id ? 'carousel-item active' : 'carousel-item'}
+                        onClick={() => pickBoardProfile(pendingModelId, size.id)}
+                      >
+                        {size.name ?? `${size.boardHeightCm}/${size.spacerHeightCm} ס״מ`}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="split-actions">
+                    <button
+                      className="text-btn"
+                      onClick={() =>
+                        addProfileRule('below', Math.min(...selection.stepIndices), pendingModelId, pendingSizeId)
+                      }
+                    >
+                      מהשלב הזה ומטה ↓
+                    </button>
+                    <button
+                      className="text-btn"
+                      onClick={() =>
+                        addProfileRule('above', Math.max(...selection.stepIndices), pendingModelId, pendingSizeId)
+                      }
+                    >
+                      מהשלב הזה ומעלה ↑
+                    </button>
+                    {(profileScheme.rules.some(
+                      (r) =>
+                        r.scope === 'field' && r.legIndex === selection.legIndex && r.fieldIndex === selection.fieldIndex,
+                    ) ||
+                      profileScheme.spacerRules.some(
+                        (r) =>
+                          r.scope === 'field' && r.legIndex === selection.legIndex && r.fieldIndex === selection.fieldIndex,
+                      )) && (
+                        <button className="text-btn" onClick={() => clearFieldProfile(selection.legIndex, selection.fieldIndex)}>
+                          אפס שדה לברירת המחדל של המקטע ↺
+                        </button>
+                      )}
+                  </div>
+                </div>
 
-            <div className="carousel-row">
-              <span className="carousel-label">רווח מתחת לשלב הזה — לחיצה קובעת מיד רק אותו</span>
-              <div className="carousel">
-                {[
-                  { label: 'חצי', value: 0.5 },
-                  { label: 'רגיל', value: 1 },
-                  { label: 'כפול', value: 2 },
-                ].map((opt) => (
-                  <button
-                    key={opt.value}
-                    className={pendingSpacer === opt.value ? 'carousel-item active' : 'carousel-item'}
-                    onClick={() => pickSpacer(opt.value)}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-              <div className="split-actions">
-                <button
-                  className="text-btn"
-                  onClick={() => addSpacerRule('below', Math.min(...selection.stepIndices), pendingSpacer)}
-                >
-                  מהשלב הזה ומטה ↓
-                </button>
-                <button
-                  className="text-btn"
-                  onClick={() => addSpacerRule('above', Math.max(...selection.stepIndices), pendingSpacer)}
-                >
-                  מהשלב הזה ומעלה ↑
-                </button>
-              </div>
-            </div>
+                <div className="carousel-row">
+                  <span className="carousel-label">רווח מתחת לשלב הזה — לחיצה קובעת מיד רק אותו</span>
+                  <div className="carousel">
+                    {[
+                      { label: 'חצי', value: 0.5 },
+                      { label: 'רגיל', value: 1 },
+                      { label: 'כפול', value: 2 },
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        className={pendingSpacer === opt.value ? 'carousel-item active' : 'carousel-item'}
+                        onClick={() => pickSpacer(opt.value)}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="split-actions">
+                    <button
+                      className="text-btn"
+                      onClick={() => addSpacerRule('below', Math.min(...selection.stepIndices), pendingSpacer)}
+                    >
+                      מהשלב הזה ומטה ↓
+                    </button>
+                    <button
+                      className="text-btn"
+                      onClick={() => addSpacerRule('above', Math.max(...selection.stepIndices), pendingSpacer)}
+                    >
+                      מהשלב הזה ומעלה ↑
+                    </button>
+                  </div>
+                </div>
 
-            <div className="carousel-row">
-              <div className="carousel-label-row">
-                <span className="carousel-label">צבע — לחיצה צובעת מיד רק את השלב הזה</span>
-                <label className="group-toggle">
-                  <input
-                    type="checkbox"
-                    checked={applyToAllFields}
-                    onChange={(e) => setApplyToAllFields(e.target.checked)}
-                  />
-                  החל על כל השדות
-                </label>
-              </div>
-              <div className="carousel">
-                {FENCE_COLORS.map((c) => (
-                  <button
-                    key={c.hex}
-                    className={pendingBoardColor === c.hex ? 'swatch active' : 'swatch'}
-                    style={{ background: c.hex }}
-                    title={c.name}
-                    onClick={() => pickBoardColor(c.hex)}
-                  />
-                ))}
-              </div>
-              <div className="split-actions">
-                <button
-                  className="text-btn"
-                  onClick={() =>
-                    addColorRule(
-                      'below',
-                      selection.stepHeights[Math.min(...selection.stepIndices)] ?? selection.heightCm,
-                      pendingBoardColor,
-                    )
-                  }
-                >
-                  מהשלב הזה ומטה ↓
-                </button>
-                <button
-                  className="text-btn"
-                  onClick={() =>
-                    addColorRule(
-                      'above',
-                      selection.stepHeights[Math.max(...selection.stepIndices)] ?? selection.heightCm,
-                      pendingBoardColor,
-                    )
-                  }
-                >
-                  מהשלב הזה ומעלה ↑
-                </button>
-              </div>
-            </div>
+                <div className="carousel-row">
+                  <div className="carousel-label-row">
+                    <span className="carousel-label">צבע — לחיצה צובעת מיד רק את השלב הזה</span>
+                    <label className="group-toggle">
+                      <input
+                        type="checkbox"
+                        checked={applyToAllFields}
+                        onChange={(e) => setApplyToAllFields(e.target.checked)}
+                      />
+                      החל על כל השדות
+                    </label>
+                  </div>
+                  <div className="carousel">
+                    {FENCE_COLORS.map((c) => (
+                      <button
+                        key={c.hex}
+                        className={pendingBoardColor === c.hex ? 'swatch active' : 'swatch'}
+                        style={{ background: c.hex }}
+                        title={c.name}
+                        onClick={() => pickBoardColor(c.hex)}
+                      />
+                    ))}
+                  </div>
+                  <div className="split-actions">
+                    <button
+                      className="text-btn"
+                      onClick={() =>
+                        addColorRule(
+                          'below',
+                          selection.stepHeights[Math.min(...selection.stepIndices)] ?? selection.heightCm,
+                          pendingBoardColor,
+                        )
+                      }
+                    >
+                      מהשלב הזה ומטה ↓
+                    </button>
+                    <button
+                      className="text-btn"
+                      onClick={() =>
+                        addColorRule(
+                          'above',
+                          selection.stepHeights[Math.max(...selection.stepIndices)] ?? selection.heightCm,
+                          pendingBoardColor,
+                        )
+                      }
+                    >
+                      מהשלב הזה ומעלה ↑
+                    </button>
+                  </div>
+                </div>
 
-            <button type="button" className="apply-fence-btn" onClick={applyFieldToEntireFence}>
-              החל שדה זה על כל הגדר
-            </button>
+                <button type="button" className="apply-fence-btn" onClick={applyFieldToEntireFence}>
+                  החל שדה זה על כל הגדר
+                </button>
 
-            </div>
+              </div>
 
             </div>
           </div>
@@ -1309,142 +1304,144 @@ onSelect={(nextSelection) => {
           </button>
         </div>
         <div className="panel-scroll">
-        <h1>בילדר צורה — גדר פרוצדורלית</h1>
-        <p className="hint">
-          רגל היא היחידה הבסיסית — לכל רגל גובה חומה קיים וגובה סגירה משלה. הצומת בין כל שתי
-          רגליים קובע הכל: 90° (ימינה/שמאלה), ישר (רק שינוי גובה), או נתק (שתי גדרות נפרדות
-          לגמרי, בלי עמוד משותף). לחיצה על עמוד בסצנה קובעת צבע לכל העמודים; לחיצה על שלב
-          פותחת בחירת צבע מפוצלת לפי גובה.
-        </p>
+          <h1>בילדר צורה — גדר פרוצדורלית</h1>
+          <p className="hint">
+            רגל היא היחידה הבסיסית — לכל רגל גובה חומה קיים וגובה סגירה משלה. הצומת בין כל שתי
+            רגליים קובע הכל: 90° (ימינה/שמאלה), ישר (רק שינוי גובה), או נתק (שתי גדרות נפרדות
+            לגמרי, בלי עמוד משותף). לחיצה על עמוד בסצנה קובעת צבע לכל העמודים; לחיצה על שלב
+            פותחת בחירת צבע מפוצלת לפי גובה.
+          </p>
 
-        {shape.legs.map((leg, legIndex) => {
-          const isOpen = expandedLegIndices.has(legIndex);
-          return (
-            <div key={legIndex} ref={(el) => { legRefs.current[legIndex] = el; }}>
-              <div className="segment-block">
-                <button
-                  type="button"
-                  className="segment-header segment-header-toggle"
-                  onClick={() => toggleLeg(legIndex)}
-                >
-                  <span>מקטע {legIndex + 1}</span>
-                  {!isOpen && (
-                    <span className="segment-summary">
-                      אורך {leg.lengthM.toFixed(1)} מ׳ · גובה  {Math.round(leg.heightCm)} ס״מ
+          {shape.legs.map((leg, legIndex) => {
+            const isOpen = expandedLegIndices.has(legIndex);
+            return (
+              <div key={legIndex} ref={(el) => { legRefs.current[legIndex] = el; }}>
+                <div className="segment-block">
+                  <button
+                    type="button"
+                    className="segment-header segment-header-toggle"
+                    onClick={() => toggleLeg(legIndex)}
+                  >
+                    <span>מקטע {legIndex + 1}</span>
+                    {!isOpen && (
+                      <span className="segment-summary">
+                        אורך {leg.lengthM.toFixed(1)} מ׳ · גובה  {Math.round(leg.heightCm)} ס״מ
+                      </span>
+                    )}
+                    <span className={isOpen ? 'segment-caret segment-caret-open' : 'segment-caret'}>
+                      {isOpen ? '↑' : '↓'}
                     </span>
+                  </button>
+
+                  {isOpen && (
+                    <>
+                      <PrecisionSlider
+                        mode="length"
+                        className="leg-row"
+                        label="אורך"
+                        min={0}
+                        max={20}
+                        step={1}
+                        value={leg.lengthM}
+                        fineValue={getPrecision(lengthPrecision, legIndex).fine}
+                        precisionOn={getPrecision(lengthPrecision, legIndex).on}
+                        onChangeValue={(v) => updateLegLength(legIndex, v)}
+                        onChangeFineValue={(f) =>
+                          setLengthPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), fine: f } }))
+                        }
+                        onTogglePrecision={(on) =>
+                          setLengthPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), on } }))
+                        }
+                        onFineAdjust={() => {
+                          skipNextFocusRef.current = true;
+                        }}
+                      />
+
+                      <PrecisionSlider
+                        mode="height"
+                        className="leg-row base-height-row"
+                        label="גובה חומה קיים"
+                        min={0}
+                        max={Math.max(0, leg.heightCm - 20)}
+                        step={1}
+                        value={leg.baseHeightCm}
+                        fineValue={getPrecision(baseHeightPrecision, legIndex).fine}
+                        precisionOn={getPrecision(baseHeightPrecision, legIndex).on}
+                        onChangeValue={(v) => updateLeg(legIndex, (l) => ({ ...l, baseHeightCm: v }))}
+                        onChangeFineValue={(f) =>
+                          setBaseHeightPrecision((prev) => ({
+                            ...prev,
+                            [legIndex]: { ...getPrecision(prev, legIndex), fine: f },
+                          }))
+                        }
+                        onTogglePrecision={(on) =>
+                          setBaseHeightPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), on } }))
+                        }
+                        onFineAdjust={() => {
+                          skipNextFocusRef.current = true;
+                        }}
+                      />
+
+                      <HeightSnapSlider
+                        label="גובה גדר"
+                        leg={leg}
+                        boardHeightCm={resolveBoardDims(leg.modelId, leg.sizeId).boardHeightCm}
+                        spacerHeightCm={resolveBoardDims(leg.modelId, leg.sizeId).spacerHeightCm}
+                        onChangeHeight={(v) => updateLeg(legIndex, (l) => ({ ...l, heightCm: v }))}
+                      />
+                    </>
                   )}
-                  <span className={isOpen ? 'segment-caret segment-caret-open' : 'segment-caret'}>
-                    {isOpen ? '↑' : '↓'}
-                  </span>
-                </button>
+                </div>
 
-                {isOpen && (
-                  <>
-                    <PrecisionSlider
-                      mode="length"
-                      className="leg-row"
-                      label="אורך"
-                      min={0}
-                      max={20}
-                      step={1}
-                      value={leg.lengthM}
-                      fineValue={getPrecision(lengthPrecision, legIndex).fine}
-                      precisionOn={getPrecision(lengthPrecision, legIndex).on}
-                      onChangeValue={(v) => updateLegLength(legIndex, v)}
-                      onChangeFineValue={(f) =>
-                        setLengthPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), fine: f } }))
-                      }
-                      onTogglePrecision={(on) =>
-                        setLengthPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), on } }))
-                      }
-                      onFineAdjust={() => {
-                        skipNextFocusRef.current = true;
-                      }}
-                    />
-
-                    <PrecisionSlider
-                      mode="height"
-                      className="leg-row base-height-row"
-                      label="גובה חומה קיים"
-                      min={0}
-                      max={Math.max(0, leg.heightCm - 20)}
-                      step={1}
-                      value={leg.baseHeightCm}
-                      fineValue={getPrecision(baseHeightPrecision, legIndex).fine}
-                      precisionOn={getPrecision(baseHeightPrecision, legIndex).on}
-                      onChangeValue={(v) => updateLeg(legIndex, (l) => ({ ...l, baseHeightCm: v }))}
-                      onChangeFineValue={(f) =>
-                        setBaseHeightPrecision((prev) => ({
-                          ...prev,
-                          [legIndex]: { ...getPrecision(prev, legIndex), fine: f },
-                        }))
-                      }
-                      onTogglePrecision={(on) =>
-                        setBaseHeightPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), on } }))
-                      }
-                      onFineAdjust={() => {
-                        skipNextFocusRef.current = true;
-                      }}
-                    />
-
-                    <HeightSnapSlider
-                      label="גובה גדר"
-                      leg={leg}
-                      boardHeightCm={resolveBoardDims(leg.modelId, leg.sizeId).boardHeightCm}
-                      spacerHeightCm={resolveBoardDims(leg.modelId, leg.sizeId).spacerHeightCm}
-                      onChangeHeight={(v) => updateLeg(legIndex, (l) => ({ ...l, heightCm: v }))}
-                    />
-                  </>
+                {shape.junctions[legIndex] && (
+                  <div className="junction-divider">
+                    <div className="junction-controls">
+                      {(['right', 'left', 'straight', 'disconnect'] as const).map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          className={shape.junctions[legIndex].type === t ? 'pill active' : 'pill'}
+                          onClick={() => setJunction(legIndex, t)}
+                        >
+                          {JUNCTION_LABELS[t]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
+            );
+          })}
 
-              {isOpen && shape.junctions[legIndex] && (
-                <div className="corner-row junction-row">
-                  <span>צומת:</span>
-                  {(['right', 'left', 'straight', 'disconnect'] as const).map((t) => (
-                    <button
-                      key={t}
-                      className={shape.junctions[legIndex].type === t ? 'pill active' : 'pill'}
-                      onClick={() => setJunction(legIndex, t)}
-                    >
-                      {JUNCTION_LABELS[t]}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-
-        <div className="segment-actions">
-          <button className="text-btn" onClick={addLeg}>
-            + הוסף רגל
-          </button>
-          {shape.legs.length > 1 && (
-            <button className="text-btn" onClick={removeLastLeg}>
-              − הסר רגל אחרונה
+          <div className="segment-actions">
+            <button className="text-btn" onClick={addLeg}>
+              + הוסף רגל
             </button>
-          )}
-        </div>
+            {shape.legs.length > 1 && (
+              <button className="text-btn" onClick={removeLastLeg}>
+                − הסר רגל אחרונה
+              </button>
+            )}
+          </div>
 
-        <div className="summary">
-          <div>
-            <span>שלבים</span>
-            <strong>{stats.boardCount}</strong>
-            <span>(פרופילים)</span>
+          <div className="summary">
+            <div>
+              <span>שלבים</span>
+              <strong>{stats.boardCount}</strong>
+              <span>(פרופילים)</span>
+            </div>
+            <div>
+              <span>עמודים</span>
+              <strong>{stats.postCount}</strong>
+              <span>({stats.doublePostCount} כפולים)</span>
+            </div>
+            <div>
+              <span>שדות</span>
+              <strong>{stats.fieldCount}</strong>
+            </div>
           </div>
-          <div>
-            <span>עמודים</span>
-            <strong>{stats.postCount}</strong>
-            <span>({stats.doublePostCount} כפולים)</span>
-          </div>
-          <div>
-            <span>שדות</span>
-            <strong>{stats.fieldCount}</strong>
-          </div>
-        </div>
 
-        <p className="footnote">מידות עמוד, עובי לוח ועומק חריץ עדיין PLACEHOLDER — ראה constants.ts.</p>
+          <p className="footnote">מידות עמוד, עובי לוח ועומק חריץ עדיין PLACEHOLDER — ראה constants.ts.</p>
         </div>
       </div>
     </div>
