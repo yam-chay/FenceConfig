@@ -257,7 +257,7 @@ const VIEW_DIRECTION = new THREE.Vector3(2, 4.2, 11).normalize();
 const DEFAULT_POLAR = Math.acos(VIEW_DIRECTION.y);
 const DEFAULT_AZIMUTH = Math.atan2(VIEW_DIRECTION.x, VIEW_DIRECTION.z);
 const AZIMUTH_RANGE = Math.PI / 2; // full horizontal rotation — polar stays locked below
-const POLAR_RANGE = (15 * Math.PI) / 180;
+const POLAR_RANGE = (15 * Math.PI) / 90;
 const ZOOM_IN_FACTOR = 0.55;
 const ZOOM_OUT_FACTOR = 1.7;
 const FLY_DURATION_MS = 550;
@@ -394,7 +394,13 @@ export default function Scene({
   function flyTo(
     target: FrameTarget,
     padding: number,
-    opts?: { relativeToCurrent?: boolean; preserveAngle?: boolean; instant?: boolean },
+    opts?: {
+      relativeToCurrent?: boolean;
+      preserveAngle?: boolean;
+      instant?: boolean;
+      preserveDistance?: boolean;
+      zoomDistance?: number;
+    },
   ) {
 
     const camera = cameraRef.current;
@@ -406,11 +412,21 @@ export default function Scene({
     controls.update();
     controls.enableDamping = hadDamping;
 
-    let distance = distanceForTarget(target, padding);
-    if (opts?.relativeToCurrent && lastFrameTargetRef.current) {
+    let distance = opts?.zoomDistance ?? distanceForTarget(target, padding);
+
+    if (opts?.preserveDistance) {
+      distance = camera.position.distanceTo(controls.target);
+    } else if (opts?.relativeToCurrent && lastFrameTargetRef.current) {
       const currentDistance = camera.position.distanceTo(controls.target);
-      const oldNaturalDistance = distanceForTarget(lastFrameTargetRef.current, lastPaddingRef.current);
-      const ratio = THREE.MathUtils.clamp(currentDistance / oldNaturalDistance, 0.25, 4);
+      const oldNaturalDistance = distanceForTarget(
+        lastFrameTargetRef.current,
+        lastPaddingRef.current,
+      );
+      const ratio = THREE.MathUtils.clamp(
+        currentDistance / oldNaturalDistance,
+        0.25,
+        4,
+      );
       distance = distance * ratio;
     }
 
@@ -462,7 +478,57 @@ export default function Scene({
     controls.enablePan = false;
     controls.enableDamping = true;
     controls.dampingFactor = 0.1;
+    controls.enableZoom = false;
     controlsRef.current = controls;
+
+    // Fixed zoom distance per wheel step.
+    const ZOOM_STEP_M = 0.8;
+
+    const handleWheelZoom = (event: WheelEvent) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+
+      const currentDistance = camera.position.distanceTo(controls.target);
+
+      const delta =
+        event.deltaY > 0
+          ? ZOOM_STEP_M
+          : -ZOOM_STEP_M;
+
+      const minDistance = controls.minDistance || 0.1;
+      const maxDistance = controls.maxDistance || Infinity;
+
+      const newDistance = THREE.MathUtils.clamp(
+        currentDistance + delta,
+        minDistance,
+        maxDistance,
+      );
+
+      const currentTarget = controls.target.clone();
+
+      flyTo(
+        {
+          centerX: currentTarget.x,
+          centerY: currentTarget.y,
+          centerZ: currentTarget.z,
+          radius: 1,
+        },
+        1,
+        {
+          preserveAngle: true,
+          zoomDistance: newDistance,
+        },
+      );
+    };
+
+    renderer.domElement.addEventListener(
+      'wheel',
+      handleWheelZoom,
+      {
+        passive: false,
+        capture: true,
+      },
+    );
 
     flyTo(shapeBoundsRef.current, FULL_SHAPE_PADDING, { instant: true });
 
@@ -804,6 +870,7 @@ export default function Scene({
       resizeObserver.disconnect();
       renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
       renderer.domElement.removeEventListener('pointerup', handlePointerUp);
+      renderer.domElement.removeEventListener('wheel', handleWheelZoom, true);
       controls.dispose();
       renderer.dispose();
       container.removeChild(renderer.domElement);
@@ -931,49 +998,49 @@ export default function Scene({
       // physical reason the first board starts ROSETTE_OFFSET_CM above the
       // post's own base rather than right at baseM.
       const rosetteGeo = new THREE.BoxGeometry(
-  accessoryWidthM,
-  rosetteHeightM,
-  accessoryWidthM,
-);
-const rosetteMesh = new THREE.Mesh(rosetteGeo, postDisplayMat);
+        accessoryWidthM,
+        rosetteHeightM,
+        accessoryWidthM,
+      );
+      const rosetteMesh = new THREE.Mesh(rosetteGeo, postDisplayMat);
 
-/*
- * Endpoint rosette positioning:
- *
- * `post.heading` is the direction in which the fence boards leave the post.
- *
- * For an endpoint post, the rosette is shifted toward the opposite face
- * of the post so that the rosette's outer edge aligns with the corresponding
- * outer face of the post.
- *
- * Important:
- * - The post itself is NOT moved.
- * - The rosette dimensions are NOT changed.
- * - Middle posts and double posts remain centered.
- * - This is purely visual placement.
- */
-const rosetteOverhangM =
-  (accessoryWidthM - postThicknessM) / 2;
+      /*
+       * Endpoint rosette positioning:
+       *
+       * `post.heading` is the direction in which the fence boards leave the post.
+       *
+       * For an endpoint post, the rosette is shifted toward the opposite face
+       * of the post so that the rosette's outer edge aligns with the corresponding
+       * outer face of the post.
+       *
+       * Important:
+       * - The post itself is NOT moved.
+       * - The rosette dimensions are NOT changed.
+       * - Middle posts and double posts remain centered.
+       * - This is purely visual placement.
+       */
+      const rosetteOverhangM =
+        (accessoryWidthM - postThicknessM) / 2;
 
-let rosetteOffsetM = 0;
+      let rosetteOffsetM = 0;
 
-if (post.rosetteEnd === 'start') {
-  // Opposite the direction in which the boards leave the post.
-  rosetteOffsetM = rosetteOverhangM;
-} else if (post.rosetteEnd === 'end') {
-  // Same direction as the fence heading, toward the opposite outer face.
-  rosetteOffsetM = -rosetteOverhangM;
-}
+      if (post.rosetteEnd === 'start') {
+        // Opposite the direction in which the boards leave the post.
+        rosetteOffsetM = rosetteOverhangM;
+      } else if (post.rosetteEnd === 'end') {
+        // Same direction as the fence heading, toward the opposite outer face.
+        rosetteOffsetM = -rosetteOverhangM;
+      }
 
-rosetteMesh.position.set(
-  post.position.x + Math.cos(post.heading) * rosetteOffsetM,
-  baseM + rosetteHeightM / 2,
-  post.position.z + Math.sin(post.heading) * rosetteOffsetM,
-);
+      rosetteMesh.position.set(
+        post.position.x + Math.cos(post.heading) * rosetteOffsetM,
+        baseM + rosetteHeightM / 2,
+        post.position.z + Math.sin(post.heading) * rosetteOffsetM,
+      );
 
-rosetteMesh.rotation.y = -post.heading;
-rosetteMesh.userData.kind = 'rosette';
-fenceGroup.add(rosetteMesh);
+      rosetteMesh.rotation.y = -post.heading;
+      rosetteMesh.userData.kind = 'rosette';
+      fenceGroup.add(rosetteMesh);
       rosetteMesh.userData.kind = 'rosette';
       fenceGroup.add(rosetteMesh);
 
@@ -998,7 +1065,7 @@ fenceGroup.add(rosetteMesh);
       // adjoining fields' walls now stop flush at this post's own FACE
       // (see the field loop below), leaving the post's central strip
       // (postThicknessM wide) uncovered underneath.
-            if (post.isDoublePost && post.legIndices.length === 2) {
+      if (post.isDoublePost && post.legIndices.length === 2) {
         const legA = shape.legs[post.legIndices[0]];
         const legB = shape.legs[post.legIndices[1]];
         if (legA.baseHeightCm !== legB.baseHeightCm && baseM > 0) {
@@ -1033,7 +1100,7 @@ fenceGroup.add(rosetteMesh);
       );
       const baseM = field.baseHeightCm / 100;
 
-            const startIsMiddle = field.legIndex > 0 && shape.junctions[field.legIndex - 1]?.type !== 'disconnect';
+      const startIsMiddle = field.legIndex > 0 && shape.junctions[field.legIndex - 1]?.type !== 'disconnect';
       const endIsMiddle = field.legIndex < shape.legs.length - 1 && shape.junctions[field.legIndex]?.type !== 'disconnect';
       const isFirstFieldOfLeg = field.index === 0;
       const isLastFieldOfLeg = field.index === fieldCountForLeg(leg.lengthM, startIsMiddle, endIsMiddle) - 1;
@@ -1044,27 +1111,27 @@ fenceGroup.add(rosetteMesh);
         const halfFaceM = boardLengthM / 2;
         const pastRosetteM = halfFaceM + postThicknessM + wallEndOverhangM;
 
-               /*
-         * Wall boundaries at a height-changing junction:
-         *
-         * The shared post belongs to the LOWER fence level. The two walls
-         * must therefore meet at ONE shared physical boundary instead of
-         * independently deciding whether they should reach `halfFaceM` or
-         * `pastRosetteM`.
-         *
-         * `halfFaceM` = the post's face boundary.
-         * `pastRosetteM` = the extra reach needed when the wall is low enough
-         * to safely pass the post face and cover the rosette area.
-         *
-         * At a height-changing junction:
-         * - the HIGHER wall stops/starts at the post face
-         * - the LOWER wall gets the rosette-aware extension
-         *
-         * This is calculated from the junction's two legs, so the same
-         * boundary rule is applied from both sides of the shared post.
-         */
+        /*
+  * Wall boundaries at a height-changing junction:
+  *
+  * The shared post belongs to the LOWER fence level. The two walls
+  * must therefore meet at ONE shared physical boundary instead of
+  * independently deciding whether they should reach `halfFaceM` or
+  * `pastRosetteM`.
+  *
+  * `halfFaceM` = the post's face boundary.
+  * `pastRosetteM` = the extra reach needed when the wall is low enough
+  * to safely pass the post face and cover the rosette area.
+  *
+  * At a height-changing junction:
+  * - the HIGHER wall stops/starts at the post face
+  * - the LOWER wall gets the rosette-aware extension
+  *
+  * This is calculated from the junction's two legs, so the same
+  * boundary rule is applied from both sides of the shared post.
+  */
 
-                        const wallToPostFaceM = halfFaceM;
+        const wallToPostFaceM = halfFaceM;
         const wallToRosetteEdgeM = pastRosetteM;
 
         // At a height-changing junction:
@@ -1175,8 +1242,49 @@ fenceGroup.add(rosetteMesh);
     shapeBoundsRef.current = fullBounds;
 
     const isFirstBuild = prevShapeRef.current === null;
-    const focusDiff = isFirstBuild ? null : diffFocusLegs(prevShapeRef.current!, shape);
+    const previousShape = prevShapeRef.current;
+    const focusDiff = isFirstBuild ? null : diffFocusLegs(previousShape!, shape);
     prevShapeRef.current = shape;
+
+    let wallHeightOnlyEdit = false;
+    let fenceHeightOnlyEdit = false;
+
+    if (!isFirstBuild && previousShape) {
+      const sameLegCount =
+        previousShape.legs.length === shape.legs.length;
+
+      const sameJunctions =
+        previousShape.junctions.length === shape.junctions.length &&
+        shape.junctions.every(
+          (junction, i) =>
+            junction.type === previousShape.junctions[i]?.type,
+        );
+
+      if (sameLegCount && sameJunctions) {
+        let hasLengthChange = false;
+        let hasBaseHeightChange = false;
+        let hasHeightChange = false;
+
+        for (let i = 0; i < shape.legs.length; i++) {
+          const prevLeg = previousShape.legs[i];
+          const nextLeg = shape.legs[i];
+
+          hasLengthChange ||= prevLeg.lengthM !== nextLeg.lengthM;
+          hasBaseHeightChange ||= prevLeg.baseHeightCm !== nextLeg.baseHeightCm;
+          hasHeightChange ||= prevLeg.heightCm !== nextLeg.heightCm;
+        }
+
+        wallHeightOnlyEdit =
+          !hasLengthChange &&
+          hasBaseHeightChange;
+
+        fenceHeightOnlyEdit =
+          !hasLengthChange &&
+          !hasBaseHeightChange &&
+          hasHeightChange;
+      }
+    }
+
 
     const skipThisFocus = skipNextFocusRef?.current ?? false;
     if (skipNextFocusRef) skipNextFocusRef.current = false;
@@ -1190,6 +1298,16 @@ fenceGroup.add(rosetteMesh);
     const hadSelection = prevSelectionRef.current !== null;
     const hasSelection = selection !== null;
     prevSelectionRef.current = selection;
+
+    /*
+ * Height sliders should not cause a full camera refocus.
+ *
+ * Wall height:
+ * Keep the camera completely untouched.
+ */
+    if (wallHeightOnlyEdit) {
+      return;
+    }
 
     if (focusDiff === null) {
       // Closing an edit sheet (selection -> null) with no shape change: step
@@ -1219,6 +1337,47 @@ fenceGroup.add(rosetteMesh);
           }
         };
       }
+      return;
+    }
+
+    if (fenceHeightOnlyEdit) {
+      const previousTopM = Math.max(
+        0,
+        ...previousShape!.legs.map((leg) => leg.heightCm / 100),
+      );
+
+      const currentTopM = Math.max(
+        0,
+        ...shape.legs.map((leg) => leg.heightCm / 100),
+      );
+
+      const heightDeltaM = currentTopM - previousTopM;
+
+      /*
+       * Move the viewing target only slightly vertically.
+       * Keep the exact current camera distance and angle.
+       *
+       * The multiplier deliberately makes this a subtle visual adjustment,
+       * rather than reframing the whole scene.
+       */
+      const currentTarget = controlsRef.current?.target;
+
+      if (currentTarget) {
+        flyTo(
+          {
+            centerX: currentTarget.x,
+            centerY: currentTarget.y + heightDeltaM * 0.18,
+            centerZ: currentTarget.z,
+            radius: shapeBoundsRef.current.radius,
+          },
+          lastPaddingRef.current,
+          {
+            preserveAngle: true,
+            preserveDistance: true,
+          },
+        );
+      }
+
       return;
     }
 
