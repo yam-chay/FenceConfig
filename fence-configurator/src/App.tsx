@@ -1129,14 +1129,73 @@ export default function App() {
                 <div className="carousel-row">
                   <div className="carousel-label-row">
                     <span className="carousel-label">פרופיל השלב הזה — לחיצה קובעת מיד רק אותו</span>
-                    <label className="group-toggle">
-                      <input
-                        type="checkbox"
-                        checked={applyToAllFields}
-                        onChange={(e) => setApplyToAllFields(e.target.checked)}
-                      />
-                      החל על כל השדות
-                    </label>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <label className="group-toggle">
+                        <input
+                          type="checkbox"
+                          checked={applyToAllFields}
+                          onChange={(e) => setApplyToAllFields(e.target.checked)}
+                        />
+                        החל על כל השדות
+                      </label>
+
+                      <button
+                        type="button"
+                        className="text-btn"
+                        disabled={
+                          !(
+                            profileScheme.rules.some(
+                              (r) =>
+                                r.scope === 'field' &&
+                                r.legIndex === selection.legIndex &&
+                                r.fieldIndex === selection.fieldIndex,
+                            ) ||
+                            profileScheme.spacerRules.some(
+                              (r) =>
+                                r.scope === 'field' &&
+                                r.legIndex === selection.legIndex &&
+                                r.fieldIndex === selection.fieldIndex,
+                            )
+                          )
+                        }
+                        onClick={() => clearFieldProfile(selection.legIndex, selection.fieldIndex)}
+                        style={{
+                          opacity:
+                            profileScheme.rules.some(
+                              (r) =>
+                                r.scope === 'field' &&
+                                r.legIndex === selection.legIndex &&
+                                r.fieldIndex === selection.fieldIndex,
+                            ) ||
+                              profileScheme.spacerRules.some(
+                                (r) =>
+                                  r.scope === 'field' &&
+                                  r.legIndex === selection.legIndex &&
+                                  r.fieldIndex === selection.fieldIndex,
+                              )
+                              ? 1
+                              : 0.45,
+                          cursor:
+                            profileScheme.rules.some(
+                              (r) =>
+                                r.scope === 'field' &&
+                                r.legIndex === selection.legIndex &&
+                                r.fieldIndex === selection.fieldIndex,
+                            ) ||
+                              profileScheme.spacerRules.some(
+                                (r) =>
+                                  r.scope === 'field' &&
+                                  r.legIndex === selection.legIndex &&
+                                  r.fieldIndex === selection.fieldIndex,
+                              )
+                              ? 'pointer'
+                              : 'default',
+                        }}
+                      >
+                        שחזר ברירת מחדל ↺
+                      </button>
+                    </div>
                   </div>
                   <div className="carousel">
                     {FENCE_CATALOG.map((model, i) => (
@@ -1177,21 +1236,8 @@ export default function App() {
                     >
                       מהשלב הזה ומעלה ↑
                     </button>
-                    {(profileScheme.rules.some(
-                      (r) =>
-                        r.scope === 'field' && r.legIndex === selection.legIndex && r.fieldIndex === selection.fieldIndex,
-                    ) ||
-                      profileScheme.spacerRules.some(
-                        (r) =>
-                          r.scope === 'field' && r.legIndex === selection.legIndex && r.fieldIndex === selection.fieldIndex,
-                      )) && (
-                        <button className="text-btn" onClick={() => clearFieldProfile(selection.legIndex, selection.fieldIndex)}>
-                          אפס שדה לברירת המחדל של המקטע ↺
-                        </button>
-                      )}
                   </div>
-                </div>
-
+                </div>  
                 <div className="carousel-row">
                   <span className="carousel-label">רווח מתחת לשלב הזה — לחיצה קובעת מיד רק אותו</span>
                   <div className="carousel">
@@ -1276,9 +1322,35 @@ export default function App() {
                   </div>
                 </div>
 
-                <button type="button" className="apply-fence-btn" onClick={applyFieldToEntireFence}>
-                  החל שדה זה על כל הגדר
-                </button>
+                <div className="field-actions">
+                  <button type="button" className="apply-fence-btn" onClick={applyFieldToEntireFence}>
+                    החל שדה זה על כל הגדר
+                  </button>
+
+                  <button
+                    type="button"
+                    className="text-btn"
+                    disabled={
+                      !(
+                        profileScheme.rules.some(
+                          (r) =>
+                            r.scope === 'field' &&
+                            r.legIndex === selection.legIndex &&
+                            r.fieldIndex === selection.fieldIndex,
+                        ) ||
+                        profileScheme.spacerRules.some(
+                          (r) =>
+                            r.scope === 'field' &&
+                            r.legIndex === selection.legIndex &&
+                            r.fieldIndex === selection.fieldIndex,
+                        )
+                      )
+                    }
+                    onClick={() => clearFieldProfile(selection.legIndex, selection.fieldIndex)}
+                  >
+                    שחזר ברירת מחדל ↺
+                  </button>
+                </div>
 
               </div>
 

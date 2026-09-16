@@ -264,6 +264,7 @@ const CLICK_MOVE_THRESHOLD_PX = 6;
 const FOCUS_ELEMENT_PADDING = 1.15; // close zoom-in when selecting a step/post — tight enough to actually see it without manual zooming
 const FOCUS_EDIT_PADDING = 1.3; // recent-edit window: closer than full-shape, looser than a single element — reused below for the deselect case too
 const FULL_SHAPE_PADDING = 1.35;
+const isMobileViewport = () => window.matchMedia('(max-width: 700px)').matches;
 
 function easeInOutQuad(t: number) {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
@@ -538,14 +539,18 @@ export default function Scene({
 
       if (kind === 'post') {
         onSelectRef.current?.({ kind: 'post' });
-        mesh.geometry.computeBoundingSphere();
-        const sphere = mesh.geometry.boundingSphere;
-        const radius = Math.max(sphere ? sphere.radius : 0.3, 0.25);
-        flyTo(
-          { centerX: mesh.position.x, centerY: mesh.position.y, centerZ: mesh.position.z, radius },
-          FOCUS_ELEMENT_PADDING,
-          { preserveAngle: true },
-        );
+
+        if (!isMobileViewport()) {
+          mesh.geometry.computeBoundingSphere();
+          const sphere = mesh.geometry.boundingSphere;
+          const radius = Math.max(sphere ? sphere.radius : 0.3, 0.25);
+          flyTo(
+            { centerX: mesh.position.x, centerY: mesh.position.y, centerZ: mesh.position.z, radius },
+            FOCUS_ELEMENT_PADDING,
+            { preserveAngle: true },
+          );
+        }
+
         return;
       }
       if (kind !== 'board') return;
@@ -598,8 +603,12 @@ export default function Scene({
           stepIndices,
           stepHeights: result.heights,
         });
-        if (!isExtending) flyTo(result.target, FOCUS_ELEMENT_PADDING, { preserveAngle: true });
-      } else {
+
+        if (!isExtending) {
+          flyTo(result.target, FOCUS_ELEMENT_PADDING, { preserveAngle: true });
+        }
+      }
+      else {
         onSelectRef.current?.({
           kind: 'board',
           legIndex,
@@ -1014,20 +1023,10 @@ export default function Scene({
       // even been). Reusing the last focused target with the "recent-edit"
       // padding keeps you oriented locally regardless of overall fence size.
       if (hadSelection && !hasSelection) {
-        // Keep the current angle rather than snapping to the default one —
-        // stepping back from the same viewpoint you were already at reads
-        // as a small, continuous move, and makes it easy to mentally retrace
-        // your way back to the step you were just on.
-        //
-        // Deselecting also closes the step-edit sheet, which (via CSS) grows
-        // scene-canvas-wrap back to full size over ~0.3s rather than
-        // instantly — so the container is still mid-transition, near its OLD
-        // small size, at the exact moment this effect runs. Computing the
-        // fly distance right now would size it for that transient small
-        // viewport, not the one it'll actually be flying into, which showed
-        // up as a wild zoom-out overshoot right as the sheet closed. Waiting
-        // for the resize to settle first means the distance math runs
-        // against the real final size instead.
+        if (isMobileViewport()) {
+          return;
+        }
+
         deselectFlyTimeoutRef.current = window.setTimeout(() => {
           deselectFlyTimeoutRef.current = null;
           flyTo(lastFrameTargetRef.current ?? fullBounds, FOCUS_EDIT_PADDING, {
@@ -1035,6 +1034,7 @@ export default function Scene({
             preserveAngle: true,
           });
         }, 180);
+
         return () => {
           if (deselectFlyTimeoutRef.current !== null) {
             window.clearTimeout(deselectFlyTimeoutRef.current);
