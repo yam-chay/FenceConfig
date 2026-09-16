@@ -86,9 +86,13 @@ export interface PostPlacement {
   position: { x: number; z: number };
   heading: number;
   /** True only for a real bolted double post (left/right/straight junction), rendered as one merged box. A 'disconnect' junction's two posts are independent, ordinary posts — not this. */
+  /** True only for a real bolted double post (left/right/straight junction), rendered as one merged box. A 'disconnect' junction's two posts are independent, ordinary posts — not this. */
   isDoublePost?: boolean;
   /** Which end of the fence this post represents for endpoint-rosette placement. */
   rosetteEnd?: 'start' | 'end';
+  /** Only set when isDoublePost: the heading the OUTGOING leg leaves in, after the junction's turn is applied. `heading` itself stays the incoming leg's heading (see the no-45°-diagonal comment below) — this is what lets post.ts's activeGrooveFaces find the double post's SECOND groove face, which is perpendicular to the first at a left/right corner.
+   */
+  outgoingHeadingRad?: number;
   baseHeightCm: number;
   heightCm: number;
 }
@@ -277,6 +281,7 @@ export function layoutShape(shape: Shape): ShapeLayout {
       // fence can occupy the appropriate face of the post independently.
       heading,
       isDoublePost: true,
+      outgoingHeadingRad: newHeading,
       baseHeightCm: mergedBaseHeightCm,
       heightCm: mergedTopHeightCm - mergedBaseHeightCm,
     });

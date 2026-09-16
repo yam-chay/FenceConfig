@@ -1,9 +1,11 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { layoutShape, fieldCountForLeg, type Shape } from '../geometry/shape';
 import { computeBoardStack, type ResolvedBoardDims } from '../geometry/field';
 import { resolveBoardDims, FENCE_CATALOG } from '../geometry/catalog';
+import { buildPostSpec, activeGrooveFaces, type PostSpec } from '../geometry/post';
 import {
   POST_THICKNESS_CM,
   BOARD_THICKNESS_CM,
@@ -11,6 +13,7 @@ import {
   POST_ACCESSORY_WIDTH_MULTIPLIER,
   POST_CAP_HEIGHT_CM,
   WALL_END_OVERHANG_CM,
+  GROOVE_DEPTH_CM,
 } from '../geometry/constants';
 
 /** What got clicked — a post (color applies to ALL posts) or a board at a given absolute height (color applies via the below/above split). */
@@ -266,6 +269,79 @@ const FOCUS_ELEMENT_PADDING = 1.15; // close zoom-in when selecting a step/post 
 const FOCUS_EDIT_PADDING = 1.3; // recent-edit window: closer than full-shape, looser than a single element — reused below for the deselect case too
 const FULL_SHAPE_PADDING = 1.35;
 const isMobileViewport = () => window.matchMedia('(max-width: 700px)').matches;
+
+/** Builds one merged, constructive post geometry — solid core inset by GROOVE_DEPTH_CM on every side, plus per-face solid wall panels (inactive faces) or paired jambs flanking an open channel (active faces, from spec.grooves). All pieces are merged into ONE BufferGeometry so a post still costs exactly one draw call, same as the old single-box version — grooves shouldn't regress the validated mobile draw-call numbers. */
+function buildPostGeometry(spec: PostSpec): THREE.BufferGeometry {
+  const thicknessM = spec.thicknessCm / 100;
+  const heightM = spec.heightCm / 100;
+  const grooveDepthM = GROOVE_DEPTH_CM / 100; // single shared depth today — see constants.ts
+  const half = thicknessM / 2;
+  const coreSizeM = Math.max(0.01, thicknessM - 2 * grooveDepthM);
+
+  const NORMAL_COLOR = new THREE.Color(1, 1, 1); // white — vertex color × material.color = material.color unchanged
+  // Subtle fake-AO at the back of each open channel — no real shadow-casting is set up in the scene, so this is what makes the groove read as a recess. Kept LIGHT deliberately per "טיפה בהירה" — a rendering aid, not a real dimension, so it's a local constant here rather than in constants.ts.
+  const GROOVE_SHADOW_COLOR = new THREE.Color(0.72, 0.72, 0.72);
+  // Thin sliver at the CLOSED end of the channel, flush against the core's own face.
+  const SHADOW_LIP_DEPTH_M = Math.min(grooveDepthM * 0.35, 0.006);
+
+  const pieces: THREE.BufferGeometry[] = [];
+  function addBox(sizeX: number, sizeZ: number, localX: number, localZ: number, color: THREE.Color) {
+    const geo = new THREE.BoxGeometry(sizeX, heightM, sizeZ);
+    geo.translate(localX, 0, localZ);
+    const count = geo.attributes.position.count;
+    const colors = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      colors[i * 3] = color.r;
+      colors[i * 3 + 1] = color.g;
+      colors[i * 3 + 2] = color.b;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    pieces.push(geo);
+  }
+
+  addBox(coreSizeM, coreSizeM, 0, 0, NORMAL_COLOR); // core, always present
+
+  const grooveByFace = new Map(spec.grooves.map((g) => [g.face, g]));
+  const faceDefs: { face: 'posX' | 'negX' | 'posZ' | 'negZ'; axis: 'x' | 'z'; sign: 1 | -1 }[] = [
+    { face: 'posX', axis: 'x', sign: 1 },
+    { face: 'negX', axis: 'x', sign: -1 },
+    { face: 'posZ', axis: 'z', sign: 1 },
+    { face: 'negZ', axis: 'z', sign: -1 },
+  ];
+
+  for (const { face, axis, sign } of faceDefs) {
+    const groove = grooveByFace.get(face);
+    const outerOffset = sign * (half - grooveDepthM / 2); // flush against this face, inner edge meets the core
+
+    if (!groove) {
+      if (axis === 'x') addBox(grooveDepthM, thicknessM, outerOffset, 0, NORMAL_COLOR);
+      else addBox(thicknessM, grooveDepthM, 0, outerOffset, NORMAL_COLOR);
+      continue;
+    }
+
+    const grooveWidthM = Math.min(Math.max(groove.widthCm / 100, 0), thicknessM - 0.01);
+    const jambWidthM = Math.max(0, (thicknessM - grooveWidthM) / 2);
+    if (jambWidthM <= 0.001) continue; // groove spans (almost) the whole face — nothing to render
+
+    const jambCenter = half - jambWidthM / 2;
+    if (axis === 'x') {
+      addBox(grooveDepthM, jambWidthM, outerOffset, jambCenter, NORMAL_COLOR);
+      addBox(grooveDepthM, jambWidthM, outerOffset, -jambCenter, NORMAL_COLOR);
+    } else {
+      addBox(jambWidthM, grooveDepthM, jambCenter, outerOffset, NORMAL_COLOR);
+      addBox(jambWidthM, grooveDepthM, -jambCenter, outerOffset, NORMAL_COLOR);
+    }
+
+    // Shadow lip — flush with the core's own face, extending SHADOW_LIP_DEPTH_M outward into the channel, spanning exactly grooveWidthM.
+    const lipInnerAxis = sign * (half - grooveDepthM);
+    const lipCenter = lipInnerAxis + sign * (SHADOW_LIP_DEPTH_M / 2);
+    if (axis === 'x') addBox(SHADOW_LIP_DEPTH_M, grooveWidthM, lipCenter, 0, GROOVE_SHADOW_COLOR);
+    else addBox(grooveWidthM, SHADOW_LIP_DEPTH_M, 0, lipCenter, GROOVE_SHADOW_COLOR);
+  }
+  const merged = mergeGeometries(pieces, false);
+  pieces.forEach((g) => g.dispose());
+  return merged ?? new THREE.BoxGeometry(thicknessM, heightM, thicknessM);
+}
 
 function easeInOutQuad(t: number) {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
@@ -901,7 +977,15 @@ export default function Scene({
 
     const layout = layoutShape(shape);
 
-    const postMat = new THREE.MeshStandardMaterial({ color: colorScheme.postColorHex });
+  const postMat = new THREE.MeshStandardMaterial({ color: colorScheme.postColorHex });
+    // Separate material JUST for the merged post-box geometry (the one
+    // carrying the groove). vertexColors:true lives ONLY here — the
+    // rosette/cap meshes below keep using the plain postMat, since their
+    // geometries carry no 'color' attribute and a vertexColors material on
+    // an attribute-less geometry renders solid black (WebGL's default for
+    // a disabled vertex attribute is 0,0,0,1). That's what turned
+    // everything black last time.
+    const postBoxMat = new THREE.MeshStandardMaterial({ color: colorScheme.postColorHex, vertexColors: true });
     function withHighlight(mat: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
       const clone = mat.clone();
       // Kept subtle on purpose — this needs to read as "selected" without
@@ -912,7 +996,7 @@ export default function Scene({
       return clone;
     }
     const postDisplayMat = selection?.kind === 'post' ? withHighlight(postMat) : postMat;
-
+    const postBoxDisplayMat = selection?.kind === 'post' ? withHighlight(postBoxMat) : postBoxMat;
     // Board color resolution: belowSplit and aboveSplit are two INDEPENDENT
     // boundaries — picking one never touches the other, so skipped-over
     // boards in the middle correctly stay on baseBoardColorHex instead of
@@ -985,8 +1069,21 @@ export default function Scene({
     for (const post of layout.posts) {
       const baseM = post.baseHeightCm / 100;
       const heightM = Math.max(post.heightCm, 1) / 100;
-      const geo = new THREE.BoxGeometry(postThicknessM, heightM, postThicknessM);
-      const mesh = new THREE.Mesh(geo, postDisplayMat);
+      const activeFaces = post.isDoublePost
+        ? activeGrooveFaces({
+            postHeadingRad: post.heading,
+            legIndices: post.legIndices,
+            isDoublePost: true,
+            outgoingHeadingRad: post.outgoingHeadingRad,
+          })
+        : activeGrooveFaces({
+            postHeadingRad: post.heading,
+            legIndices: post.legIndices,
+            rosetteEnd: post.rosetteEnd,
+          });
+      const postSpec = buildPostSpec(Math.max(post.heightCm, 1), activeFaces);
+      const geo = buildPostGeometry(postSpec);
+      const mesh = new THREE.Mesh(geo, postBoxDisplayMat);
       mesh.position.set(post.position.x, baseM + heightM / 2, post.position.z);
       mesh.rotation.y = -post.heading;
       mesh.userData.kind = 'post';

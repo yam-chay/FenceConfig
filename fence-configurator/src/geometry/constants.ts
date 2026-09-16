@@ -46,6 +46,8 @@ export const POST_THICKNESS_CM = 6;
 export const GROOVE_DEPTH_CM = 1.5;
 /** Board thickness. Client's rough estimate was "1-2cm" — PLACEHOLDER until exact. */
 export const BOARD_THICKNESS_CM = 1.5;
+/** Width of the channel opening on an active groove face — must clear BOARD_THICKNESS_CM plus insertion play. Derived, not independent, so it can't drift out of sync if board thickness changes. PLACEHOLDER until BOARD_THICKNESS_CM itself is confirmed. */
+export const GROOVE_WIDTH_CM = BOARD_THICKNESS_CM + 0.5;
 /** Max angle (degrees) a chained post can pivot before the smooth-curve tolerance limit is hit. PLACEHOLDER. */
 export const MAX_CHAIN_ANGLE_DEG = 15;
 /** Width multiplier for the rosette accessory plate relative to the post's own cross-section — "roughly double" per Yam's description of the real part, not a measured dimension. The cap (see POST_CAP_HEIGHT_CM) is NOT scaled by this — it matches the post's own width/depth exactly. PLACEHOLDER. */
