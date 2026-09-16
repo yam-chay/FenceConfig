@@ -15,7 +15,7 @@ import type { Shape, Leg, Junction } from './geometry/shape';
 import { fieldCountForLeg } from './geometry/shape';
 import { DEFAULT_MODEL_ID, DEFAULT_SIZE_ID, FENCE_CATALOG, resolveBoardDims } from './geometry/catalog';
 import { computeBoardStack } from './geometry/field';
-import { ROSETTE_OFFSET_CM } from './geometry/constants';
+import { ROSETTE_OFFSET_CM, POST_THICKNESS_CM, POST_ACCESSORY_WIDTH_MULTIPLIER } from './geometry/constants';
 import './App.css';
 
 const FENCE_COLORS = [
@@ -51,6 +51,7 @@ function defaultShape(): Shape {
         heightCm: heightForBoardCount(0, 14, dims.boardHeightCm, dims.spacerHeightCm),
         modelId: DEFAULT_MODEL_ID,
         sizeId: DEFAULT_SIZE_ID,
+        wallWidthCm: POST_THICKNESS_CM * POST_ACCESSORY_WIDTH_MULTIPLIER, // starts flush with the rosette sitting on it
       },
     ],
     junctions: [],
@@ -632,6 +633,7 @@ export default function App() {
             heightCm: last.heightCm,
             modelId: last.modelId,
             sizeId: last.sizeId,
+            wallWidthCm: last.wallWidthCm,
           },
         ],
         junctions: [...prev.junctions, { type: 'straight' }],
@@ -1237,7 +1239,7 @@ export default function App() {
                       מהשלב הזה ומעלה ↑
                     </button>
                   </div>
-                </div>  
+                </div>
                 <div className="carousel-row">
                   <span className="carousel-label">רווח מתחת לשלב הזה — לחיצה קובעת מיד רק אותו</span>
                   <div className="carousel">
@@ -1455,6 +1457,20 @@ export default function App() {
                           skipNextFocusRef.current = true;
                         }}
                       />
+
+                      {getPrecision(baseHeightPrecision, legIndex).on && leg.baseHeightCm > 0 && (
+                        <div className="leg-row">
+                          <span className="value-trigger">רוחב חומה: {formatTrimmed(leg.wallWidthCm, 1)} ס״מ</span>
+                          <input
+                            type="range"
+                            min={POST_THICKNESS_CM * POST_ACCESSORY_WIDTH_MULTIPLIER} // can't be narrower than the rosette sitting on top of it
+                            max={Math.max(40, POST_THICKNESS_CM * POST_ACCESSORY_WIDTH_MULTIPLIER * 2)} // placeholder ceiling — ask the client for a real range
+                            step={0.5}
+                            value={leg.wallWidthCm}
+                            onChange={(e) => updateLeg(legIndex, (l) => ({ ...l, wallWidthCm: Number(e.target.value) }))}
+                          />
+                        </div>
+                      )}
 
                       <HeightSnapSlider
                         label="גובה גדר"

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { layoutShape, type Shape } from '../geometry/shape';
+import { layoutShape, fieldCountForLeg, type Shape } from '../geometry/shape';
 import { computeBoardStack, type ResolvedBoardDims } from '../geometry/field';
 import { resolveBoardDims, FENCE_CATALOG } from '../geometry/catalog';
 import {
@@ -10,6 +10,7 @@ import {
   ROSETTE_OFFSET_CM,
   POST_ACCESSORY_WIDTH_MULTIPLIER,
   POST_CAP_HEIGHT_CM,
+  WALL_END_OVERHANG_CM,
 } from '../geometry/constants';
 
 /** What got clicked — a post (color applies to ALL posts) or a board at a given absolute height (color applies via the below/above split). */
@@ -553,7 +554,10 @@ export default function Scene({
 
         return;
       }
-      if (kind !== 'board') return;
+      if (kind !== 'board') {
+        onSelectRef.current?.(null);
+        return;
+      }
 
       const legIndex = mesh.userData.legIndex as number;
       const fieldIndex = mesh.userData.fieldIndex as number;
@@ -862,6 +866,18 @@ export default function Scene({
     const postThicknessM = POST_THICKNESS_CM / 100;
     const boardThicknessM = BOARD_THICKNESS_CM / 100;
     const accessoryWidthM = postThicknessM * POST_ACCESSORY_WIDTH_MULTIPLIER;
+    // Placeholder color for the existing wall/base the fence sits on —
+    // purely visual reference until the client gives real cladding options.
+    const wallMat = new THREE.MeshStandardMaterial({ color: '#9a9186' });
+    // A true end's wall overhang (WALL_END_OVERHANG_CM) is Yam's own visual
+    // call, but it can never end SHORTER than the rosette sitting on top of
+    // it — the rosette is already wider than the post itself
+    // (accessoryWidthM), overhanging the post's own face by
+    // (accessoryWidthM - postThicknessM) / 2 on each side. If the wall's
+    // overhang were smaller than that, the rosette's tip would hang past
+    // the wall's edge into empty space. Takes whichever is larger.
+    const rosetteOverhangPastPostFaceM = (accessoryWidthM - postThicknessM) / 2;
+    const wallEndOverhangM = Math.max(WALL_END_OVERHANG_CM / 100, rosetteOverhangPastPostFaceM);
     const rosetteHeightM = ROSETTE_OFFSET_CM / 100;
     const capHeightM = POST_CAP_HEIGHT_CM / 100;
     const capRadiusM = postThicknessM / 2;
@@ -914,10 +930,50 @@ export default function Scene({
       // Rosette: covers the post's base bolting/wall holes, and is the
       // physical reason the first board starts ROSETTE_OFFSET_CM above the
       // post's own base rather than right at baseM.
-      const rosetteGeo = new THREE.BoxGeometry(accessoryWidthM, rosetteHeightM, accessoryWidthM);
-      const rosetteMesh = new THREE.Mesh(rosetteGeo, postDisplayMat);
-      rosetteMesh.position.set(post.position.x, baseM + rosetteHeightM / 2, post.position.z);
-      rosetteMesh.rotation.y = -post.heading;
+      const rosetteGeo = new THREE.BoxGeometry(
+  accessoryWidthM,
+  rosetteHeightM,
+  accessoryWidthM,
+);
+const rosetteMesh = new THREE.Mesh(rosetteGeo, postDisplayMat);
+
+/*
+ * Endpoint rosette positioning:
+ *
+ * `post.heading` is the direction in which the fence boards leave the post.
+ *
+ * For an endpoint post, the rosette is shifted toward the opposite face
+ * of the post so that the rosette's outer edge aligns with the corresponding
+ * outer face of the post.
+ *
+ * Important:
+ * - The post itself is NOT moved.
+ * - The rosette dimensions are NOT changed.
+ * - Middle posts and double posts remain centered.
+ * - This is purely visual placement.
+ */
+const rosetteOverhangM =
+  (accessoryWidthM - postThicknessM) / 2;
+
+let rosetteOffsetM = 0;
+
+if (post.rosetteEnd === 'start') {
+  // Opposite the direction in which the boards leave the post.
+  rosetteOffsetM = rosetteOverhangM;
+} else if (post.rosetteEnd === 'end') {
+  // Same direction as the fence heading, toward the opposite outer face.
+  rosetteOffsetM = -rosetteOverhangM;
+}
+
+rosetteMesh.position.set(
+  post.position.x + Math.cos(post.heading) * rosetteOffsetM,
+  baseM + rosetteHeightM / 2,
+  post.position.z + Math.sin(post.heading) * rosetteOffsetM,
+);
+
+rosetteMesh.rotation.y = -post.heading;
+rosetteMesh.userData.kind = 'rosette';
+fenceGroup.add(rosetteMesh);
       rosetteMesh.userData.kind = 'rosette';
       fenceGroup.add(rosetteMesh);
 
@@ -932,6 +988,30 @@ export default function Scene({
       capMesh.rotation.y = -post.heading;
       capMesh.userData.kind = 'cap';
       fenceGroup.add(capMesh);
+
+      // The post sits at mergedBaseHeightCm = MIN of its two legs' base
+      // heights, and the rosette sits ABOVE that (baseM to baseM +
+      // ROSETTE_OFFSET_CM — see rosetteMesh above), never below it. So
+      // this filler — which fills the post's own footprint from the
+      // ground UP TO baseM — never touches the rosette at all (they meet
+      // exactly at y=baseM, not overlapping). It's needed because both
+      // adjoining fields' walls now stop flush at this post's own FACE
+      // (see the field loop below), leaving the post's central strip
+      // (postThicknessM wide) uncovered underneath.
+            if (post.isDoublePost && post.legIndices.length === 2) {
+        const legA = shape.legs[post.legIndices[0]];
+        const legB = shape.legs[post.legIndices[1]];
+        if (legA.baseHeightCm !== legB.baseHeightCm && baseM > 0) {
+          const lowerLeg = legA.baseHeightCm < legB.baseHeightCm ? legA : legB;
+          const fillerThicknessM = lowerLeg.wallWidthCm / 100;
+          const fillerGeo = new THREE.BoxGeometry(postThicknessM, baseM, fillerThicknessM);
+          const fillerMesh = new THREE.Mesh(fillerGeo, wallMat);
+          fillerMesh.position.set(post.position.x, baseM / 2, post.position.z);
+          fillerMesh.rotation.y = -post.heading;
+          fillerMesh.userData.kind = 'wall';
+          fenceGroup.add(fillerMesh);
+        }
+      }
 
       minX = Math.min(minX, post.position.x);
       maxX = Math.max(maxX, post.position.x);
@@ -952,6 +1032,103 @@ export default function Scene({
         resolveBoardStepCandidates(profileScheme, field.legIndex, field.index, stepIndex, leg.modelId, leg.sizeId),
       );
       const baseM = field.baseHeightCm / 100;
+
+            const startIsMiddle = field.legIndex > 0 && shape.junctions[field.legIndex - 1]?.type !== 'disconnect';
+      const endIsMiddle = field.legIndex < shape.legs.length - 1 && shape.junctions[field.legIndex]?.type !== 'disconnect';
+      const isFirstFieldOfLeg = field.index === 0;
+      const isLastFieldOfLeg = field.index === fieldCountForLeg(leg.lengthM, startIsMiddle, endIsMiddle) - 1;
+
+      if (field.baseHeightCm > 0) {
+        const wallThicknessM = leg.wallWidthCm / 100;
+        const halfFieldM = field.lengthM / 2;
+        const halfFaceM = boardLengthM / 2;
+        const pastRosetteM = halfFaceM + postThicknessM + wallEndOverhangM;
+
+               /*
+         * Wall boundaries at a height-changing junction:
+         *
+         * The shared post belongs to the LOWER fence level. The two walls
+         * must therefore meet at ONE shared physical boundary instead of
+         * independently deciding whether they should reach `halfFaceM` or
+         * `pastRosetteM`.
+         *
+         * `halfFaceM` = the post's face boundary.
+         * `pastRosetteM` = the extra reach needed when the wall is low enough
+         * to safely pass the post face and cover the rosette area.
+         *
+         * At a height-changing junction:
+         * - the HIGHER wall stops/starts at the post face
+         * - the LOWER wall gets the rosette-aware extension
+         *
+         * This is calculated from the junction's two legs, so the same
+         * boundary rule is applied from both sides of the shared post.
+         */
+
+                        const wallToPostFaceM = halfFaceM;
+        const wallToRosetteEdgeM = pastRosetteM;
+
+        // At a height-changing junction:
+        // LOW wall reaches the rosette edge.
+        // HIGH wall stops BEFORE the post, leaving the rosette/post exposed.
+        const higherWallJunctionM = Math.max(
+          0.01,
+          wallToPostFaceM - rosetteOverhangPastPostFaceM,
+        );
+
+        let startDistM = halfFieldM;
+
+        if (isFirstFieldOfLeg) {
+          if (!startIsMiddle) {
+            // Free outer end.
+            startDistM = wallToRosetteEdgeM;
+          } else {
+            const prevLeg = shape.legs[field.legIndex - 1];
+
+            if (prevLeg.baseHeightCm !== leg.baseHeightCm) {
+              const currentIsLower =
+                leg.baseHeightCm < prevLeg.baseHeightCm;
+
+              startDistM = currentIsLower
+                ? wallToRosetteEdgeM
+                : higherWallJunctionM;
+            }
+          }
+        }
+
+        let endDistM = halfFieldM;
+
+        if (isLastFieldOfLeg) {
+          if (!endIsMiddle) {
+            // Free outer end.
+            endDistM = wallToRosetteEdgeM;
+          } else {
+            const nextLeg = shape.legs[field.legIndex + 1];
+
+            if (nextLeg.baseHeightCm !== leg.baseHeightCm) {
+              const currentIsLower =
+                leg.baseHeightCm < nextLeg.baseHeightCm;
+
+              endDistM = currentIsLower
+                ? wallToRosetteEdgeM
+                : higherWallJunctionM;
+            }
+          }
+        }
+
+        const wallLengthM = startDistM + endDistM;
+        const wallCenterOffsetM = (endDistM - startDistM) / 2;
+        const wallGeo = new THREE.BoxGeometry(wallLengthM, baseM, wallThicknessM);
+        const wallMesh = new THREE.Mesh(wallGeo, wallMat);
+        wallMesh.position.set(
+          field.position.x + Math.cos(field.heading) * wallCenterOffsetM,
+          baseM / 2,
+          field.position.z + Math.sin(field.heading) * wallCenterOffsetM,
+        );
+        wallMesh.rotation.y = -field.heading;
+        wallMesh.userData.kind = 'wall';
+        fenceGroup.add(wallMesh);
+      }
+
       for (const board of boardStack.boards) {
         const boardAbsHeightCm = field.baseHeightCm + board.centerCm;
         const hex = resolveHex(field.legIndex, field.index, boardAbsHeightCm);

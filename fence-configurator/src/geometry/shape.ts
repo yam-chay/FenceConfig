@@ -18,6 +18,15 @@ export interface Leg {
   /** Which catalog model+size this leg uses — drives board/spacer dims, not just styling. See catalog.ts. */
   modelId: string;
   sizeId: string;
+  /**
+   * Width/depth (cm) of the visualized existing wall this leg's posts sit
+   * on — purely cosmetic, no production/order impact (unlike every other
+   * Leg field). Independent per leg and user-adjustable because, unlike
+   * post/board dimensions, there's no single correct constant — the real
+   * wall a customer already has varies site to site. Only rendered when
+   * baseHeightCm > 0; see Scene.tsx.
+   */
+  wallWidthCm: number;
 }
 
 /**
@@ -78,6 +87,8 @@ export interface PostPlacement {
   heading: number;
   /** True only for a real bolted double post (left/right/straight junction), rendered as one merged box. A 'disconnect' junction's two posts are independent, ordinary posts — not this. */
   isDoublePost?: boolean;
+  /** Which end of the fence this post represents for endpoint-rosette placement. */
+  rosetteEnd?: 'start' | 'end';
   baseHeightCm: number;
   heightCm: number;
 }
@@ -175,6 +186,7 @@ export function layoutShape(shape: Shape): ShapeLayout {
     legIndices: [0],
     position: { x, z },
     heading,
+    rosetteEnd: 'start',
     baseHeightCm: firstLeg.baseHeightCm,
     heightCm: firstLeg.heightCm - firstLeg.baseHeightCm,
   });
@@ -220,6 +232,7 @@ export function layoutShape(shape: Shape): ShapeLayout {
         legIndices: [legIndex],
         position: { x, z },
         heading,
+        rosetteEnd: 'end',
         baseHeightCm: leg.baseHeightCm,
         heightCm: fillHeightCm,
       });
@@ -234,6 +247,7 @@ export function layoutShape(shape: Shape): ShapeLayout {
         legIndices: [legIndex],
         position: { x, z },
         heading,
+        rosetteEnd: 'end',
         baseHeightCm: leg.baseHeightCm,
         heightCm: fillHeightCm,
       });
@@ -244,6 +258,7 @@ export function layoutShape(shape: Shape): ShapeLayout {
         legIndices: [legIndex + 1],
         position: { x, z },
         heading,
+        rosetteEnd: 'start',
         baseHeightCm: nextLeg.baseHeightCm,
         heightCm: nextLeg.heightCm - nextLeg.baseHeightCm,
       });
@@ -257,7 +272,10 @@ export function layoutShape(shape: Shape): ShapeLayout {
       index: posts.length,
       legIndices: [legIndex, legIndex + 1],
       position: { x, z },
-      heading: (heading + newHeading) / 2,
+      // A double post is a physical square post, not a 45° diagonal post.
+      // Keep its orientation aligned with the incoming leg. The connected
+      // fence can occupy the appropriate face of the post independently.
+      heading,
       isDoublePost: true,
       baseHeightCm: mergedBaseHeightCm,
       heightCm: mergedTopHeightCm - mergedBaseHeightCm,

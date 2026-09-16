@@ -36,7 +36,7 @@ export const FENCE_CATALOG: FenceModel[] = [
     id: 'type-2',
     sizes: [
       { id: 'size-1', boardHeightCm: 4, spacerHeightCm: 1 },
-      { id: 'size-2', boardHeightCm: 2, spacerHeightCm: 2 },
+      { id: 'size-2', boardHeightCm: 2, spacerHeightCm: 1 },
     ],
   },
   {
