@@ -674,18 +674,26 @@ export default function App() {
   // camera change. Clicking a closed leg's header opens it AND flies the
   // camera to frame that whole leg.
   function toggleLeg(legIndex: number) {
-    const wasOpen = expandedLegIndices.has(legIndex);
-    setExpandedLegIndices((prev) => {
-      const next = new Set(prev);
-      if (wasOpen) next.delete(legIndex);
-      else next.add(legIndex);
-      return next;
-    });
-    if (!wasOpen) {
-      legFocusNonceRef.current += 1;
-      setLegCameraFocus({ legIndex, nonce: legFocusNonceRef.current });
+  setExpandedLegIndices((prev) => {
+    const next = new Set(prev);
+
+    if (next.has(legIndex)) {
+      next.delete(legIndex);
+    } else {
+      next.add(legIndex);
     }
-  }
+
+    return next;
+  });
+
+  // Every header click triggers camera focus:
+  // opening AND closing the same leg.
+  legFocusNonceRef.current += 1;
+  setLegCameraFocus({
+    legIndex,
+    nonce: legFocusNonceRef.current,
+  });
+}
 
   function setPostColor(hex: string) {
     setColorScheme((prev) => ({ ...prev, postColorHex: hex }));

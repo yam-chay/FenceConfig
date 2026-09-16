@@ -260,7 +260,7 @@ const AZIMUTH_RANGE = Math.PI / 2; // full horizontal rotation — polar stays l
 const POLAR_RANGE = (15 * Math.PI) / 90;
 const ZOOM_IN_FACTOR = 0.55;
 const ZOOM_OUT_FACTOR = 1.7;
-const FLY_DURATION_MS = 550;
+const FLY_DURATION_MS = 600;
 const CLICK_MOVE_THRESHOLD_PX = 6;
 const FOCUS_ELEMENT_PADDING = 1.15; // close zoom-in when selecting a step/post — tight enough to actually see it without manual zooming
 const FOCUS_EDIT_PADDING = 1.3; // recent-edit window: closer than full-shape, looser than a single element — reused below for the deselect case too
@@ -477,12 +477,12 @@ export default function Scene({
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enablePan = false;
     controls.enableDamping = true;
-    controls.dampingFactor = 0.1;
+    controls.dampingFactor = 0.5;
     controls.enableZoom = false;
     controlsRef.current = controls;
 
     // Fixed zoom distance per wheel step.
-    const ZOOM_STEP_M = 0.8;
+    const ZOOM_STEP_M = 1.25;
 
     const handleWheelZoom = (event: WheelEvent) => {
       event.preventDefault();
