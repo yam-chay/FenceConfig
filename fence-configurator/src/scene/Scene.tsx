@@ -14,8 +14,8 @@ import {
   POST_CAP_HEIGHT_CM,
   WALL_END_OVERHANG_CM,
   GROOVE_DEPTH_CM,
+  CAP_COLOR_HEX,
 } from '../geometry/constants';
-
 /** What got clicked — a post (color applies to ALL posts) or a board at a given absolute height (color applies via the below/above split). */
 export type Selection =
   | { kind: 'post' }
@@ -342,6 +342,8 @@ function buildPostGeometry(spec: PostSpec): THREE.BufferGeometry {
   pieces.forEach((g) => g.dispose());
   return merged ?? new THREE.BoxGeometry(thicknessM, heightM, thicknessM);
 }
+
+
 
 function easeInOutQuad(t: number) {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
@@ -977,7 +979,7 @@ export default function Scene({
 
     const layout = layoutShape(shape);
 
-  const postMat = new THREE.MeshStandardMaterial({ color: colorScheme.postColorHex });
+    const postMat = new THREE.MeshStandardMaterial({ color: colorScheme.postColorHex });
     // Separate material JUST for the merged post-box geometry (the one
     // carrying the groove). vertexColors:true lives ONLY here — the
     // rosette/cap meshes below keep using the plain postMat, since their
@@ -1031,13 +1033,18 @@ export default function Scene({
     const wallEndOverhangM = Math.max(WALL_END_OVERHANG_CM / 100, rosetteOverhangPastPostFaceM);
     const rosetteHeightM = ROSETTE_OFFSET_CM / 100;
     const capHeightM = POST_CAP_HEIGHT_CM / 100;
-    const capRadiusM = postThicknessM / 2;
-    // A flat dome: just the top hemisphere (thetaLength = PI/2 sweeps from
-    // the pole down to the equator), squashed in Y per-mesh below so its
-    // apex sits only capHeightM above the post's top instead of a full
-    // hemisphere's height (= its own radius). Built once and reused for
-    // every post — same geometry, only position/scale differ per post.
-    const capGeo = new THREE.SphereGeometry(capRadiusM, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+    // Flat plastic cover — a thin box exactly matching the post's own
+    // cross-section (zero overhang, same "sits flush" requirement the
+    // pyramid/dome versions had), just capHeightM tall. Built once and
+    // reused for every ordinary post.
+    const capGeo = new THREE.BoxGeometry(postThicknessM, capHeightM, postThicknessM);
+    // First step of a per-part material split: the cap is plastic, not
+    // aluminum, so it gets its own fixed color/finish rather than
+    // following colorScheme.postColorHex the way the post/rosette do
+    // today. roughness/metalness are a rough "matte plastic" starting
+    // point, not measured values.
+    const capMat = new THREE.MeshStandardMaterial({ color: CAP_COLOR_HEX, roughness: 0.65, metalness: 0.05 });
+    const capDisplayMat = selection?.kind === 'post' ? withHighlight(capMat) : capMat;
 
     let totalBoards = 0;
     let totalPosts = 0;
@@ -1141,14 +1148,17 @@ export default function Scene({
       rosetteMesh.userData.kind = 'rosette';
       fenceGroup.add(rosetteMesh);
 
-      // Cap: flat dome sealing the post's grooves at the top so the boards
-      // can't be pulled back out — exactly the post's own width/depth (not
-      // doubled like the rosette), purely cosmetic, sits ABOVE the closing
-      // height and never affects the board stack's own math (confirmed:
-      // there's no reserved top margin at all).
-      const capMesh = new THREE.Mesh(capGeo, postDisplayMat);
-      capMesh.scale.y = capHeightM / capRadiusM;
-      capMesh.position.set(post.position.x, baseM + heightM, post.position.z);
+     // Cap: flat plastic cover sealing the post's grooves at the top so
+      // the boards can't be pulled back out — exactly the post's own
+      // width/depth (not doubled like the rosette), purely cosmetic, sits
+      // ABOVE the closing height and never affects the board stack's own
+      // math (confirmed: there's no reserved top margin at all). Own
+      // capDisplayMat (plastic), not postDisplayMat (aluminum) — see
+      // capMat above. BoxGeometry is centered on its own origin, so the
+      // mesh sits capHeightM/2 ABOVE the post's top surface, not AT it —
+      // otherwise half the cap would be buried inside the post.
+      const capMesh = new THREE.Mesh(capGeo, capDisplayMat);
+      capMesh.position.set(post.position.x, baseM + heightM + capHeightM / 2, post.position.z);
       capMesh.rotation.y = -post.heading;
       capMesh.userData.kind = 'cap';
       fenceGroup.add(capMesh);

@@ -53,8 +53,9 @@ export const MAX_CHAIN_ANGLE_DEG = 15;
 /** Width multiplier for the rosette accessory plate relative to the post's own cross-section — "roughly double" per Yam's description of the real part, not a measured dimension. The cap (see POST_CAP_HEIGHT_CM) is NOT scaled by this — it matches the post's own width/depth exactly. PLACEHOLDER. */
 export const POST_ACCESSORY_WIDTH_MULTIPLIER = 2;
 /** How far the post cap's apex rises above the post's own top — it's modeled as a flat dome (a squashed hemisphere) exactly as wide/deep as the post itself, sealing the grooves so boards can't slide out. Purely cosmetic — sits ABOVE the closing height and never affects the board stack's own math (confirmed: there is no vertical top margin — see ROSETTE_OFFSET_CM above). PLACEHOLDER — client hasn't given a real cap dimension yet. */
-export const POST_CAP_HEIGHT_CM = 1;
-/**
+export const POST_CAP_HEIGHT_CM = 0.4;
+/** Cap color — separate from postColorHex since the cap is a different material (plastic bolt-cover, not aluminum) with its own finish. PLACEHOLDER until the client gives a real color. */
+export const CAP_COLOR_HEX = '#2b2b2b';/**
  * How far the visualized existing wall extends PAST a true end post's own
  * face — either edge of the whole shape, or either side of a 'disconnect'
  * — so it reads as a real finished wall edge instead of stopping exactly
