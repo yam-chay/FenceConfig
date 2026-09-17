@@ -283,18 +283,44 @@ const ALUMINUM_METALNESS = 0.75;
 // below) so the grid lines stay visible on top without z-fighting. Reacts
 // to the day/night ambient/sun/moon lights automatically since it's a lit
 // MeshStandardMaterial, not a flat/unlit color.
-const GRASS_COLOR_HEX = '#5c8a4a';
+const GRASS_COLOR_HEX = '#356323';
 /** GridHelper's own material needs transparent:true before this has any effect — see setup below. 1 = fully opaque (current look), lower = grid fades into the grass more. */
 const GRID_OPACITY = 0.4;// Global multipliers on top of every keyframe's own sunIntensity/moonIntensity —
 // tweak these two numbers to brighten/dim the whole day or night cycle at once
 // without editing each keyframe row individually.
-const SUN_BRIGHTNESS_SCALE = 1;
+const SUN_BRIGHTNESS_SCALE = 3;
 const MOON_BRIGHTNESS_SCALE = 1;
-// Fixed moonlight tint — the sun's color already shifts per-keyframe
-// (orange at sunrise/sunset, white at noon), but the moon doesn't need
-// that variation, so one constant color is enough for the sun<->moon
-// blend below.
-const MOON_LIGHT_COLOR = new THREE.Color('#aac4ff');// --- Day/night cycle ---
+// MOON_LIGHT_COLOR removed — no longer needed. Every keyframe now carries
+// its own "core" color directly (Sun/Sunset/Sunrise Core by day, Moon
+// Core at night), so ordinary keyframe-to-keyframe interpolation already
+// produces the sun<->moon color transition on its own.
+
+/**
+ * Redraws the 3-stop (top/mid/horizon) sky gradient onto the given canvas
+ * in place, and flags its CanvasTexture for re-upload. A flat 2D texture
+ * assigned to scene.background renders as a fixed backdrop quad (not
+ * equirectangular-mapped), which is fine here since the camera's own
+ * azimuth/polar range is already locked to a narrow band (see
+ * AZIMUTH_RANGE/POLAR_RANGE above) — the sky never needs to wrap around
+ * behind the viewer.
+ */
+function drawSkyGradient(
+  canvas: HTMLCanvasElement,
+  texture: THREE.CanvasTexture,
+  top: THREE.Color,
+  mid: THREE.Color,
+  horizon: THREE.Color,
+) {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  gradient.addColorStop(0, `#${top.getHexString()}`);
+  gradient.addColorStop(0.55, `#${mid.getHexString()}`);
+  gradient.addColorStop(1, `#${horizon.getHexString()}`);
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  texture.needsUpdate = true;
+}// --- Day/night cycle ---
 // Simplified sky model: sun and moon both arc across the SAME forward
 // hemisphere (fixed +Z tilt) rather than true opposite sides of the
 // world. Astronomically a full moon sits opposite the sun, but the
@@ -311,21 +337,62 @@ const MOON_LIGHT_COLOR = new THREE.Color('#aac4ff');// --- Day/night cycle ---
 const SKY_ORBIT_RADIUS_M = 60;
 const SKY_ORBIT_DEPTH_Z_M = 22;
 
+// Reorients the WHOLE arc as one rigid rotation, so sunset (hour 18)
+// lands near where the camera is actually looking, offset to one side —
+// rather than the raw world X axis, which had no relationship to the
+// camera's framing at all. Every other hour's direction just follows
+// along automatically, since it's the same arc shape, only rotated.
+//
+// "Where the camera looks" = the ground-plane azimuth of -VIEW_DIRECTION
+// (the camera SITS along +VIEW_DIRECTION from the target, so it looks
+// back along the negative of it) — same atan2(x,z) convention
+// DEFAULT_AZIMUTH above already uses, so this stays in sync automatically
+// if VIEW_DIRECTION is ever retuned.
+const CAMERA_FORWARD_AZIMUTH_RAD = Math.atan2(-VIEW_DIRECTION.x, -VIEW_DIRECTION.z);
+// "Offset to the right" — sign is an unverified guess; flip to negative
+// if sunset ends up on the LEFT of camera-forward instead once rendered.
+const SKY_ORBIT_AZIMUTH_OFFSET_DEG = -50;
+const SKY_ORBIT_WEST_AZIMUTH_RAD =
+  CAMERA_FORWARD_AZIMUTH_RAD + THREE.MathUtils.degToRad(SKY_ORBIT_AZIMUTH_OFFSET_DEG);
+// The OLD (unrotated) arc's own sunset azimuth, hour 18 — solved here
+// from SKY_ORBIT_RADIUS_M/SKY_ORBIT_DEPTH_Z_M rather than hardcoded, so
+// the rotation below stays correct even if those two change later.
+const SKY_ORBIT_UNROTATED_SUNSET_AZIMUTH_RAD = Math.atan2(-SKY_ORBIT_RADIUS_M, SKY_ORBIT_DEPTH_Z_M);
+const SKY_ORBIT_ROTATION_RAD = SKY_ORBIT_WEST_AZIMUTH_RAD - SKY_ORBIT_UNROTATED_SUNSET_AZIMUTH_RAD;
+
 function skyDirectionForHour(hour: number): THREE.Vector3 {
   const angle = ((hour - 6) / 24) * Math.PI * 2; // 0 at 6:00 (rising), PI/2 at 12:00 (zenith), PI at 18:00 (setting)
   const elevation = Math.sin(angle);
   const horizontal = Math.cos(angle);
-  return new THREE.Vector3(horizontal * SKY_ORBIT_RADIUS_M, elevation * SKY_ORBIT_RADIUS_M, SKY_ORBIT_DEPTH_Z_M);
+  const x0 = horizontal * SKY_ORBIT_RADIUS_M;
+  const z0 = SKY_ORBIT_DEPTH_Z_M;
+  // Rotates the (x0,z0) ground-plane pair by SKY_ORBIT_ROTATION_RAD, in
+  // the same atan2(x,z) convention used above — adds that angle to
+  // whatever azimuth (x0,z0) already had, for every hour alike.
+  const cosR = Math.cos(SKY_ORBIT_ROTATION_RAD);
+  const sinR = Math.sin(SKY_ORBIT_ROTATION_RAD);
+  const x = x0 * cosR + z0 * sinR;
+  const z = z0 * cosR - x0 * sinR;
+  return new THREE.Vector3(x, elevation * SKY_ORBIT_RADIUS_M, z);
 }
 
 interface DayNightKeyframe {
   hour: number;
-  sky: THREE.Color;
+  /** Sky gradient, top to horizon — drawn as a 3-stop canvas gradient (see drawSkyGradient) rather than a flat scene.background color. */
+  skyTop: THREE.Color;
+  skyMid: THREE.Color;
+  skyHorizon: THREE.Color;
+  /** "Ambient Shadow" tint from the palette — drives the AmbientLight's color/intensity. */
   ambient: THREE.Color;
   ambientIntensity: number;
+  /** "Core" color of whichever body is dominant at this hour — Sun/Sunset/Sunrise Core by day, Moon Core at night. Drives BOTH the merged directional light's color and the visible sun/moon disc's own color. */
   sunColor: THREE.Color;
+  /** "Glow" color of whichever body is dominant — drives the soft halo sprite behind the sun/moon disc. */
+  glowColor: THREE.Color;
   sunIntensity: number;
   moonIntensity: number;
+  /** "Ground Light"/"Ground Shadow" tint — the grass material's own base color at this hour. No real shadow mapping in this scene, so this single color stands in for that whole layer. */
+  groundTint: THREE.Color;
   /** Scales scene.environment's contribution (the procedural RoomEnvironment
    * set up for PBR reflections) — that map is otherwise a FIXED light
    * source that doesn't dim at night on its own, unlike ambient/sun/moon
@@ -337,16 +404,24 @@ interface DayNightKeyframe {
 // Hand-picked aesthetic values, not measured light readings — tune freely.
 // First and last entries both represent midnight (hour 0 / hour 24) with
 // identical values, so interpolation wraps cleanly across that seam.
+// Values sourced from the "Unified Environment Palette" (Yam, 2026-09-17).
+// Each hour maps to one of the 4 named categories (Night / Sunrise / Day /
+// Sunset); hours 8/12/16 all use Day tokens — the palette doesn't
+// distinguish morning/noon/afternoon separately, so the brightness
+// difference between them still comes from sunIntensity/ambientIntensity,
+// not a different color set. Noon's sunColor is the palette's own Sun
+// Core (#FFF4C2) rather than pure white — a deliberate change from the
+// previous #ffffff, to stay faithful to the given palette.
 export const DAY_NIGHT_KEYFRAMES: DayNightKeyframe[] = [
-  { hour: 0, sky: new THREE.Color('#050914'), ambient: new THREE.Color('#232a45'), ambientIntensity: 0.22, sunColor: new THREE.Color('#5a6a99'), sunIntensity: 0, moonIntensity: 0.5, envIntensity: 0.1 },
-  { hour: 5, sky: new THREE.Color('#0c1424'), ambient: new THREE.Color('#232a45'), ambientIntensity: 0.24, sunColor: new THREE.Color('#5a6a99'), sunIntensity: 0, moonIntensity: 0.42, envIntensity: 0.12 },
-  { hour: 6.5, sky: new THREE.Color('#ff9a5c'), ambient: new THREE.Color('#6b564d'), ambientIntensity: 0.4, sunColor: new THREE.Color('#ff9a5c'), sunIntensity: 0.55, moonIntensity: 0.05, envIntensity: 0.4 },
-  { hour: 8, sky: new THREE.Color('#bfe0f2'), ambient: new THREE.Color('#d6d9dc'), ambientIntensity: 0.55, sunColor: new THREE.Color('#fff0d6'), sunIntensity: 0.9, moonIntensity: 0, envIntensity: 0.75 },
-  { hour: 12, sky: new THREE.Color('#a9d8f5'), ambient: new THREE.Color('#eef1f4'), ambientIntensity: 0.65, sunColor: new THREE.Color('#ffffff'), sunIntensity: 1.1, moonIntensity: 0, envIntensity: 1 },
-  { hour: 16, sky: new THREE.Color('#bfe0f2'), ambient: new THREE.Color('#d6d9dc'), ambientIntensity: 0.55, sunColor: new THREE.Color('#fff0d6'), sunIntensity: 0.9, moonIntensity: 0, envIntensity: 0.75 },
-  { hour: 17.5, sky: new THREE.Color('#ff8a5a'), ambient: new THREE.Color('#6b564d'), ambientIntensity: 0.4, sunColor: new THREE.Color('#ff7a45'), sunIntensity: 0.55, moonIntensity: 0.05, envIntensity: 0.4 },
-  { hour: 19, sky: new THREE.Color('#0c1424'), ambient: new THREE.Color('#232a45'), ambientIntensity: 0.24, sunColor: new THREE.Color('#5a6a99'), sunIntensity: 0, moonIntensity: 0.42, envIntensity: 0.12 },
-  { hour: 24, sky: new THREE.Color('#050914'), ambient: new THREE.Color('#232a45'), ambientIntensity: 0.22, sunColor: new THREE.Color('#5a6a99'), sunIntensity: 0, moonIntensity: 0.5, envIntensity: 0.1 },
+  { hour: 0, skyTop: new THREE.Color('#080F2B'), skyMid: new THREE.Color('#1D3263'), skyHorizon: new THREE.Color('#40567D'), ambient: new THREE.Color('#0C172A'), ambientIntensity: 0.22, sunColor: new THREE.Color('#FFF1C7'), glowColor: new THREE.Color('#AFC7E8'), sunIntensity: 0, moonIntensity: 0.5, groundTint: new THREE.Color('#354B48'), envIntensity: 0.1 },
+  { hour: 5, skyTop: new THREE.Color('#080F2B'), skyMid: new THREE.Color('#1D3263'), skyHorizon: new THREE.Color('#40567D'), ambient: new THREE.Color('#0C172A'), ambientIntensity: 0.24, sunColor: new THREE.Color('#FFF1C7'), glowColor: new THREE.Color('#AFC7E8'), sunIntensity: 0, moonIntensity: 0.42, groundTint: new THREE.Color('#354B48'), envIntensity: 0.12 },
+  { hour: 6.5, skyTop: new THREE.Color('#283B70'), skyMid: new THREE.Color('#C18BA4'), skyHorizon: new THREE.Color('#F6B18C'), ambient: new THREE.Color('#414D67'), ambientIntensity: 0.4, sunColor: new THREE.Color('#FFF0B5'), glowColor: new THREE.Color('#F7C17F'), sunIntensity: 0.55, moonIntensity: 0.05, groundTint: new THREE.Color('#9E9F7B'), envIntensity: 0.4 },
+   { hour: 8, skyTop: new THREE.Color('#3B82C4'), skyMid: new THREE.Color('#73B9E6'), skyHorizon: new THREE.Color('#C6E6F5'), ambient: new THREE.Color('#526779'), ambientIntensity: 0.55, sunColor: new THREE.Color('#FFF4C2'), glowColor: new THREE.Color('#FFE6A3'), sunIntensity: 0.9, moonIntensity: 0, groundTint: new THREE.Color('#5c8a4a'), envIntensity: 0.75 },
+  { hour: 12, skyTop: new THREE.Color('#3B82C4'), skyMid: new THREE.Color('#73B9E6'), skyHorizon: new THREE.Color('#C6E6F5'), ambient: new THREE.Color('#526779'), ambientIntensity: 0.65, sunColor: new THREE.Color('#FFF4C2'), glowColor: new THREE.Color('#FFE6A3'), sunIntensity: 1.1, moonIntensity: 0, groundTint: new THREE.Color('#5c8a4a'), envIntensity: 1 },
+  { hour: 16, skyTop: new THREE.Color('#3B82C4'), skyMid: new THREE.Color('#73B9E6'), skyHorizon: new THREE.Color('#C6E6F5'), ambient: new THREE.Color('#526779'), ambientIntensity: 0.55, sunColor: new THREE.Color('#FFF4C2'), glowColor: new THREE.Color('#FFE6A3'), sunIntensity: 0.9, moonIntensity: 0, groundTint: new THREE.Color('#5c8a4a'), envIntensity: 0.75 },
+  { hour: 17.5, skyTop: new THREE.Color('#343B78'), skyMid: new THREE.Color('#B96F91'), skyHorizon: new THREE.Color('#F3A16F'), ambient: new THREE.Color('#3E405E'), ambientIntensity: 0.4, sunColor: new THREE.Color('#FFD18A'), glowColor: new THREE.Color('#F47D55'), sunIntensity: 0.55, moonIntensity: 0.05, groundTint: new THREE.Color('#92785F'), envIntensity: 0.4 },
+  { hour: 19, skyTop: new THREE.Color('#080F2B'), skyMid: new THREE.Color('#1D3263'), skyHorizon: new THREE.Color('#40567D'), ambient: new THREE.Color('#0C172A'), ambientIntensity: 0.24, sunColor: new THREE.Color('#FFF1C7'), glowColor: new THREE.Color('#AFC7E8'), sunIntensity: 0, moonIntensity: 0.42, groundTint: new THREE.Color('#354B48'), envIntensity: 0.12 },
+  { hour: 24, skyTop: new THREE.Color('#080F2B'), skyMid: new THREE.Color('#1D3263'), skyHorizon: new THREE.Color('#40567D'), ambient: new THREE.Color('#0C172A'), ambientIntensity: 0.22, sunColor: new THREE.Color('#FFF1C7'), glowColor: new THREE.Color('#AFC7E8'), sunIntensity: 0, moonIntensity: 0.5, groundTint: new THREE.Color('#354B48'), envIntensity: 0.1 },
 ];
 
 /** Linearly interpolates between the two DAY_NIGHT_KEYFRAMES bracketing `hour` (wraps across 0–24). */
@@ -364,12 +439,16 @@ function sampleDayNight(hour: number) {
   const span = hi.hour - lo.hour || 1;
   const t = (h - lo.hour) / span;
   return {
-    sky: lo.sky.clone().lerp(hi.sky, t),
+    skyTop: lo.skyTop.clone().lerp(hi.skyTop, t),
+    skyMid: lo.skyMid.clone().lerp(hi.skyMid, t),
+    skyHorizon: lo.skyHorizon.clone().lerp(hi.skyHorizon, t),
     ambientColor: lo.ambient.clone().lerp(hi.ambient, t),
     ambientIntensity: THREE.MathUtils.lerp(lo.ambientIntensity, hi.ambientIntensity, t),
     sunColor: lo.sunColor.clone().lerp(hi.sunColor, t),
-   sunIntensity: THREE.MathUtils.lerp(lo.sunIntensity, hi.sunIntensity, t) * SUN_BRIGHTNESS_SCALE,
+    glowColor: lo.glowColor.clone().lerp(hi.glowColor, t),
+    sunIntensity: THREE.MathUtils.lerp(lo.sunIntensity, hi.sunIntensity, t) * SUN_BRIGHTNESS_SCALE,
     moonIntensity: THREE.MathUtils.lerp(lo.moonIntensity, hi.moonIntensity, t) * MOON_BRIGHTNESS_SCALE,
+    groundTint: lo.groundTint.clone().lerp(hi.groundTint, t),
     envIntensity: THREE.MathUtils.lerp(lo.envIntensity, hi.envIntensity, t),
   };
 }
@@ -511,12 +590,18 @@ export default function Scene({
   const ambientLightRef = useRef<THREE.AmbientLight | null>(null);
   const sunLightRef = useRef<THREE.DirectionalLight | null>(null); // now the MERGED sun+moon light
   const sunMeshRef = useRef<THREE.Mesh | null>(null);
-  const moonMeshRef = useRef<THREE.Mesh | null>(null);
-  // Current desired envMapIntensity for every PBR (MeshStandardMaterial)
-  // object in the scene, kept in sync with the day/night cycle below.
   const envIntensityRef = useRef(1);
-  const onStatsRef = useRef(onStats);
-  onStatsRef.current = onStats;
+  const moonMeshRef = useRef<THREE.Mesh | null>(null);
+  // Refs for the palette additions below: grass material (retuned per
+  // hour, same pattern as the lights), the sky gradient's own canvas +
+  // texture (redrawn in place each hour rather than recreated), and the
+  // two glow halo sprites behind the sun/moon discs.
+  const groundMatRef = useRef<THREE.MeshStandardMaterial | null>(null);
+  const skyCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const skyTextureRef = useRef<THREE.CanvasTexture | null>(null);
+  const sunGlowRef = useRef<THREE.Sprite | null>(null);
+  const moonGlowRef = useRef<THREE.Sprite | null>(null);
+  const onStatsRef = useRef(onStats);  onStatsRef.current = onStats;
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
   const selectionRef = useRef(selection);
@@ -653,8 +738,16 @@ export default function Scene({
     const container = containerRef.current;
     if (!container) return;
 
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xeef1f4);
+  const scene = new THREE.Scene();
+    // Sky gradient: a small canvas redrawn in place (drawSkyGradient)
+    // whenever the hour changes, rather than a flat background color.
+    const skyCanvas = document.createElement('canvas');
+    skyCanvas.width = 4;
+    skyCanvas.height = 256;
+    const skyTexture = new THREE.CanvasTexture(skyCanvas);
+    skyCanvasRef.current = skyCanvas;
+    skyTextureRef.current = skyTexture;
+    scene.background = skyTexture;
     sceneRef.current = scene;
 
     const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 500);
@@ -772,11 +865,39 @@ export default function Scene({
       new THREE.SphereGeometry(1.6, 16, 12),
       new THREE.MeshBasicMaterial({ color: 0xe4e9f5 }),
     );
-    sunMeshRef.current = sunMesh;
+   sunMeshRef.current = sunMesh;
     moonMeshRef.current = moonMesh;
     scene.add(sunMesh, moonMesh);
 
-      const ground = new THREE.GridHelper(200, 200, 0xc9d2d8, 0xdfe5e9);
+    // Soft glow halos behind the sun/moon discs — one shared radial-
+    // gradient sprite texture (white center fading to transparent),
+    // reused via two separate Sprite instances tinted per hour
+    // (glowColor). Additive blending + no depth write so the halo never
+    // occludes anything or fights depth with the disc it sits behind.
+    const haloCanvas = document.createElement('canvas');
+    haloCanvas.width = 128;
+    haloCanvas.height = 128;
+    const haloCtx = haloCanvas.getContext('2d')!;
+    const haloGradient = haloCtx.createRadialGradient(64, 64, 0, 64, 64, 64);
+    haloGradient.addColorStop(0, 'rgba(255,255,255,0.9)');
+    haloGradient.addColorStop(1, 'rgba(255,255,255,0)');
+    haloCtx.fillStyle = haloGradient;
+    haloCtx.fillRect(0, 0, 128, 128);
+    const haloTexture = new THREE.CanvasTexture(haloCanvas);
+
+    const sunGlow = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: haloTexture, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }),
+    );
+    sunGlow.scale.set(9, 9, 1);
+    const moonGlow = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: haloTexture, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }),
+    );
+    moonGlow.scale.set(7, 7, 1);
+    sunGlowRef.current = sunGlow;
+    moonGlowRef.current = moonGlow;
+    scene.add(sunGlow, moonGlow);
+
+      const ground = new THREE.GridHelper(200, 200, 0x424242, 0xa1bed1);
     // opacity has no visible effect until transparent:true is set — off by
     // default on GridHelper's material.
     const gridMat = ground.material as THREE.Material;
@@ -793,11 +914,11 @@ export default function Scene({
       roughness: 0.95,
       metalness: 0,
     });
-    const groundMesh = new THREE.Mesh(groundMeshGeo, groundMeshMat);
+     const groundMesh = new THREE.Mesh(groundMeshGeo, groundMeshMat);
     groundMesh.rotation.x = -Math.PI / 2;
     groundMesh.position.y = -0.01;
-    scene.add(groundMesh);
-    const fenceGroup = new THREE.Group();
+    groundMatRef.current = groundMeshMat;
+    scene.add(groundMesh);    const fenceGroup = new THREE.Group();
     fenceGroupRef.current = fenceGroup;
     scene.add(fenceGroup);
 
@@ -1131,13 +1252,17 @@ export default function Scene({
       controls.dispose();
       renderer.dispose();
       scene.environment?.dispose();
-      sunMesh.geometry.dispose();
+     sunMesh.geometry.dispose();
       (sunMesh.material as THREE.Material).dispose();
       moonMesh.geometry.dispose();
       (moonMesh.material as THREE.Material).dispose();
       groundMeshGeo.dispose();
       groundMeshMat.dispose();
       gridMat.dispose();
+      skyTexture.dispose();
+      haloTexture.dispose();
+      sunGlow.material.dispose();
+      moonGlow.material.dispose();
       container.removeChild(renderer.domElement);
     };
   }, []);
@@ -1148,42 +1273,63 @@ export default function Scene({
   // fenceGroup and never triggers any camera movement.
   useEffect(() => {
     const scene = sceneRef.current;
-    const ambient = ambientLightRef.current;
+     const ambient = ambientLightRef.current;
     const sky = sunLightRef.current; // merged sun+moon light — see setup effect
     const sunMesh = sunMeshRef.current;
     const moonMesh = moonMeshRef.current;
-    if (!scene || !ambient || !sky || !sunMesh || !moonMesh) return;
+    const groundMat = groundMatRef.current;
+    const skyCanvas = skyCanvasRef.current;
+    const skyTexture = skyTextureRef.current;
+    const sunGlow = sunGlowRef.current;
+    const moonGlow = moonGlowRef.current;
+    if (!scene || !ambient || !sky || !sunMesh || !moonMesh || !groundMat || !skyCanvas || !skyTexture || !sunGlow || !moonGlow) return;
 
     const sample = sampleDayNight(timeOfDayHours);
 
-    scene.background = sample.sky;
+    drawSkyGradient(skyCanvas, skyTexture, sample.skyTop, sample.skyMid, sample.skyHorizon);
     ambient.color.copy(sample.ambientColor);
     ambient.intensity = sample.ambientIntensity;
+    groundMat.color.copy(sample.groundTint);
 
-    const sunDir = skyDirectionForHour(timeOfDayHours);
+   const sunDir = skyDirectionForHour(timeOfDayHours);
     const moonDir = skyDirectionForHour(timeOfDayHours + 12);
-    const sunIntensity = sample.sunIntensity * SUN_BRIGHTNESS_SCALE;
-    const moonIntensity = sample.moonIntensity * MOON_BRIGHTNESS_SCALE;
+    // sample.sunIntensity/moonIntensity already have SUN_BRIGHTNESS_SCALE/
+    // MOON_BRIGHTNESS_SCALE folded in by sampleDayNight — the previous
+    // version of this block reapplied them here too, silently doubling
+    // the scale whenever either constant was set to anything but 1.
+    const sunIntensity = sample.sunIntensity;
+    const moonIntensity = sample.moonIntensity;
 
-    // Blend weight toward "moon" — sun and moon intensities are near-
-    // complementary (one is close to 0 whenever the other is significant),
-    // so this stays near 0 all day and near 1 all night, with a brief
-    // sweep through the middle only during the low-intensity dawn/dusk
-    // crossover where any position artifact is barely visible.
+    // Blend weight toward "moon" — only used for the light's POSITION now.
+    // Its color no longer needs a separate blend, since sample.sunColor
+    // (interpolated straight from each keyframe's own Core token) already
+    // carries the sun<->moon color transition on its own.
     const totalIntensity = sunIntensity + moonIntensity;
     const moonWeight = totalIntensity > 0.0001 ? moonIntensity / totalIntensity : 0;
 
     const mergedDir = sunDir.clone().lerp(moonDir, moonWeight);
-    const mergedColor = sample.sunColor.clone().lerp(MOON_LIGHT_COLOR, moonWeight);
 
     sky.position.copy(mergedDir);
-    sky.color.copy(mergedColor);
+    sky.color.copy(sample.sunColor);
     sky.intensity = totalIntensity;
 
     sunMesh.position.copy(sunDir);
+    (sunMesh.material as THREE.MeshBasicMaterial).color.copy(sample.sunColor);
     sunMesh.visible = sunIntensity > 0.01;
     moonMesh.position.copy(moonDir);
+    (moonMesh.material as THREE.MeshBasicMaterial).color.copy(sample.sunColor);
     moonMesh.visible = moonIntensity > 0.01;
+
+    // Glow halos: same position as their own disc, tinted by the current
+    // keyframe's glow color, opacity following that body's own intensity
+    // so the halo fades together with the disc instead of popping at the
+    // 0.01 visibility threshold above.
+    sunGlow.position.copy(sunDir);
+    sunGlow.material.color.copy(sample.glowColor);
+    sunGlow.material.opacity = Math.min(1, sunIntensity);
+    moonGlow.position.copy(moonDir);
+    moonGlow.material.color.copy(sample.glowColor);
+    moonGlow.material.opacity = Math.min(1, moonIntensity * 1.4);
 
     // scene.environment is otherwise a FIXED light source — it does not
     // dim on its own just because ambient/sun/moon went down. Retune

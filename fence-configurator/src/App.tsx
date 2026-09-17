@@ -463,10 +463,10 @@ function CircularTimeSlider({ hours, onChange }: { hours: number; onChange: (hou
   // Curated subset of DAY_NIGHT_KEYFRAMES (not all 9) — fewer, sharper
   // stops for a stark day/night look instead of a smoothed rainbow.
   // Indices: 0=hour0(night), 2=hour6.5(sunrise), 4=hour12(day), 6=hour17.5(sunset), 8=hour24(night).
-  const night = `#${DAY_NIGHT_KEYFRAMES[0].sky.getHexString()}`;
-  const sunrise = `#${DAY_NIGHT_KEYFRAMES[2].sky.getHexString()}`;
-  const day = `#${DAY_NIGHT_KEYFRAMES[4].sky.getHexString()}`;
-  const sunset = `#${DAY_NIGHT_KEYFRAMES[6].sky.getHexString()}`;
+  const night = `#${DAY_NIGHT_KEYFRAMES[0].skyMid.getHexString()}`;
+  const sunrise = `#${DAY_NIGHT_KEYFRAMES[2].skyMid.getHexString()}`;
+  const day = `#${DAY_NIGHT_KEYFRAMES[4].skyMid.getHexString()}`;
+  const sunset = `#${DAY_NIGHT_KEYFRAMES[6].skyMid.getHexString()}`;
   const gradient = `conic-gradient(
     ${night} 0deg, ${night} 82deg,
     ${sunrise} 96deg,
