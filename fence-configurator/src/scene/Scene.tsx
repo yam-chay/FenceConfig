@@ -1279,7 +1279,7 @@ export default function Scene({
     const accessoryWidthM = postThicknessM * POST_ACCESSORY_WIDTH_MULTIPLIER;
     // Placeholder color for the existing wall/base the fence sits on —
     // purely visual reference until the client gives real cladding options.
-      const wallMat = new THREE.MeshStandardMaterial({ color: '#9a9186', envMapIntensity: envIntensityRef.current });    // A true end's wall overhang (WALL_END_OVERHANG_CM) is Yam's own visual
+      const wallMat = new THREE.MeshStandardMaterial({ color: '#696662', envMapIntensity: envIntensityRef.current });    // A true end's wall overhang (WALL_END_OVERHANG_CM) is Yam's own visual
     // call, but it can never end SHORTER than the rosette sitting on top of
     // it — the rosette is already wider than the post itself
     // (accessoryWidthM), overhanging the post's own face by
