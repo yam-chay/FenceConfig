@@ -285,8 +285,21 @@ const ALUMINUM_METALNESS = 0.75;
 // MeshStandardMaterial, not a flat/unlit color.
 const GRASS_COLOR_HEX = '#356323';
 /** GridHelper's own material needs transparent:true before this has any effect — see setup below. 1 = fully opaque (current look), lower = grid fades into the grass more. */
-const GRID_OPACITY = 0.4;// Global multipliers on top of every keyframe's own sunIntensity/moonIntensity —
-// tweak these two numbers to brighten/dim the whole day or night cycle at once
+const GRID_OPACITY = 0.4;
+// Shadow map resolution — higher = sharper shadow edges, more GPU cost.
+// Bumped from 1024: at that size covering a frustum sized to the whole
+// fence, each shadow-map texel could be several cm across — bigger than
+// the board/spacer gaps, so fine detail (the groove/step lines between
+// boards) got blurred away entirely. 2048 roughly quarters texel size.
+// Watch FPS on mobile after this change — drop back to 1024 if it tanks.
+const SHADOW_MAP_SIZE = 2048;
+// Extra margin (meters) added around the fence's own bounds when sizing
+// the shadow camera frustum — keeps a board/post near the EDGE of the
+// fence from losing its shadow just because its bounding box was exactly
+// on the frustum's boundary. Kept small on purpose: every extra meter of
+// margin spreads the same SHADOW_MAP_SIZE texel budget thinner, directly
+// costing the fine board-gap detail this frustum needs to resolve.
+const SHADOW_FRUSTUM_MARGIN_M = 0.5;// tweak these two numbers to brighten/dim the whole day or night cycle at once
 // without editing each keyframe row individually.
 const SUN_BRIGHTNESS_SCALE = 3;
 const MOON_BRIGHTNESS_SCALE = 1;
@@ -753,9 +766,11 @@ export default function Scene({
     const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 500);
     cameraRef.current = camera;
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
@@ -849,10 +864,32 @@ export default function Scene({
     // themselves.
     const ambient = new THREE.AmbientLight(0xffffff, 0.6);
     const sky = new THREE.DirectionalLight(0xffffff, 0.8);
+    sky.castShadow = true;
+    sky.shadow.mapSize.set(SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
+    // A small bias, negative, is the standard fix for "shadow acne" (self-
+    // shadowing artifacts) on flat surfaces — the frustum itself gets
+    // sized to the fence's actual bounds in the shape-rebuild effect below
+    // (see updateShadowFrustum), not here; these are just safe fallback
+    // defaults before the first shape ever builds.
+    sky.shadow.bias = -0.0015;
+    // PCFSoftShadowMap's own blur radius (in shadow-map texels, not
+    // world units) — default (~1) was already soft; the fine board-gap
+    // detail needed something closer to a hard edge. Lower = sharper.
+    sky.shadow.radius = 1;
+    sky.shadow.camera.near = 0.5;
+    sky.shadow.camera.far = 80;
+    sky.shadow.camera.left = -10;
+    sky.shadow.camera.right = 10;
+    sky.shadow.camera.top = 10;
+    sky.shadow.camera.bottom = -10;
+    // DirectionalLight needs an explicit target object in the scene graph
+    // for its shadow camera to aim correctly — otherwise it defaults to
+    // aiming at the world origin (0,0,0), which is wrong once the fence's
+    // own center isn't there. Retargeted per-shape in the rebuild effect.
+    scene.add(sky.target);
     ambientLightRef.current = ambient;
     sunLightRef.current = sky; // reused ref name — this IS now the merged sky light
     scene.add(ambient, sky);
-
     // Small unlit discs (MeshBasicMaterial — unaffected by scene
     // lighting, since these represent the light SOURCES, not lit
     // objects) marking the sun/moon's position in the sky. Always full
@@ -917,6 +954,7 @@ export default function Scene({
      const groundMesh = new THREE.Mesh(groundMeshGeo, groundMeshMat);
     groundMesh.rotation.x = -Math.PI / 2;
     groundMesh.position.y = -0.01;
+    groundMesh.receiveShadow = true;
     groundMatRef.current = groundMeshMat;
     scene.add(groundMesh);    const fenceGroup = new THREE.Group();
     fenceGroupRef.current = fenceGroup;
@@ -1501,6 +1539,8 @@ export default function Scene({
       mesh.position.set(post.position.x, baseM + heightM / 2, post.position.z);
       mesh.rotation.y = -post.heading;
       mesh.userData.kind = 'post';
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
       fenceGroup.add(mesh);
       totalPosts++;
       if (post.isDoublePost) totalDoublePosts++;
@@ -1699,7 +1739,7 @@ export default function Scene({
         const wallLengthM = startDistM + endDistM;
         const wallCenterOffsetM = (endDistM - startDistM) / 2;
         const wallGeo = new THREE.BoxGeometry(wallLengthM, baseM, wallThicknessM);
-        const wallMesh = new THREE.Mesh(wallGeo, wallMat);
+         const wallMesh = new THREE.Mesh(wallGeo, wallMat);
         wallMesh.position.set(
           field.position.x + Math.cos(field.heading) * wallCenterOffsetM,
           baseM / 2,
@@ -1707,6 +1747,7 @@ export default function Scene({
         );
         wallMesh.rotation.y = -field.heading;
         wallMesh.userData.kind = 'wall';
+        wallMesh.receiveShadow = true;
         fenceGroup.add(wallMesh);
       }
 
@@ -1729,6 +1770,8 @@ export default function Scene({
         mesh.userData.stepIndex = board.stepIndex;
         mesh.userData.legIndex = field.legIndex;
         mesh.userData.fieldIndex = field.index;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
         fenceGroup.add(mesh);
         totalBoards++;
       }
@@ -1753,8 +1796,23 @@ export default function Scene({
       centerZ: (minZ + maxZ) / 2,
       radius: Math.max(Math.sqrt((maxX - minX) ** 2 + (maxZ - minZ) ** 2 + maxTopHeightM ** 2) / 2, 1.5),
     };
-    shapeBoundsRef.current = fullBounds;
+ shapeBoundsRef.current = fullBounds;
 
+    // Retarget the shadow camera to the fence's own current bounds
+    // instead of a fixed global frustum — the fence's footprint varies
+    // wildly (one short leg vs. many long ones), and a frustum sized for
+    // the worst case would waste shadow-map resolution on short fences.
+    const skyLight = sunLightRef.current;
+    if (skyLight) {
+      const m = SHADOW_FRUSTUM_MARGIN_M;
+      const halfWidth = Math.max(fullBounds.radius, 1) + m;
+      skyLight.target.position.set(fullBounds.centerX, fullBounds.centerY, fullBounds.centerZ);
+      skyLight.shadow.camera.left = -halfWidth;
+      skyLight.shadow.camera.right = halfWidth;
+      skyLight.shadow.camera.top = halfWidth;
+      skyLight.shadow.camera.bottom = -halfWidth;
+      skyLight.shadow.camera.updateProjectionMatrix();
+    }
     const isFirstBuild = prevShapeRef.current === null;
     const previousShape = prevShapeRef.current;
     const focusDiff = isFirstBuild ? null : diffFocusLegs(previousShape!, shape);
