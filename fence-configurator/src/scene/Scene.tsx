@@ -1237,15 +1237,19 @@ export default function Scene({
     const accessoryWidthM = postThicknessM * POST_ACCESSORY_WIDTH_MULTIPLIER;
     // Placeholder color for the existing wall/base the fence sits on —
     // purely visual reference until the client gives real cladding options.
-      const wallMat = new THREE.MeshStandardMaterial({ color: '#696662', envMapIntensity: envIntensityRef.current });    // A true end's wall overhang (WALL_END_OVERHANG_CM) is Yam's own visual
-    // call, but it can never end SHORTER than the rosette sitting on top of
-    // it — the rosette is already wider than the post itself
-    // (accessoryWidthM), overhanging the post's own face by
-    // (accessoryWidthM - postThicknessM) / 2 on each side. If the wall's
-    // overhang were smaller than that, the rosette's tip would hang past
-    // the wall's edge into empty space. Takes whichever is larger.
+      const wallMat = new THREE.MeshStandardMaterial({ color: '#696662', envMapIntensity: envIntensityRef.current });    // A true end's wall overhang is Yam's own visual call
+    // (WALL_END_OVERHANG_CM), and nothing else. The old reasoning here —
+    // flooring it against the rosette's own overhang so the rosette's tip
+    // never hangs past the wall's edge — was based on the rosette's
+    // SYMMETRIC overhang (accessoryWidthM - postThicknessM) / 2, which is
+    // the value at a MIDDLE post. At a true end (rosetteEnd 'start'/'end'),
+    // the rosette is shifted so its free-side edge sits FLUSH with the
+    // post's own outer face — see rosetteOffsetM below — so there is no
+    // rosette overhang to protect against on this side at all. Changing
+    // WALL_END_OVERHANG_CM now directly controls how far the wall reaches
+    // past the end post, with nothing silently flooring it.
     const rosetteOverhangPastPostFaceM = (accessoryWidthM - postThicknessM) / 2;
-    const wallEndOverhangM = Math.max(WALL_END_OVERHANG_CM / 100, rosetteOverhangPastPostFaceM);
+    const wallEndOverhangM = WALL_END_OVERHANG_CM / 100;
     const rosetteHeightM = ROSETTE_OFFSET_CM / 100;
     const capHeightM = POST_CAP_HEIGHT_CM / 100;
     // Flat plastic cover — a thin box exactly matching the post's own
@@ -1440,7 +1444,19 @@ export default function Scene({
         const wallThicknessM = leg.wallWidthCm / 100;
         const halfFieldM = field.lengthM / 2;
         const halfFaceM = boardLengthM / 2;
+        // Free true end: the rosette sits FLUSH there (zero overhang) —
+        // see the comment above wallEndOverhangM's own declaration.
         const pastRosetteM = halfFaceM + postThicknessM + wallEndOverhangM;
+        // LOW wall at a height-changing DOUBLE-POST junction is a
+        // DIFFERENT case from the free end above: a double post gets no
+        // rosetteEnd at all (see the rosette-positioning code below), so
+        // rosetteOffsetM stays 0 and the rosette sits CENTERED/symmetric
+        // on the post — it genuinely overhangs the post's face by
+        // rosetteOverhangPastPostFaceM even on this "low" side. Floored
+        // against that real overhang so the wall never ends shorter than
+        // the rosette actually sitting above it here.
+        const pastRosetteJunctionM =
+          halfFaceM + postThicknessM + Math.max(wallEndOverhangM, rosetteOverhangPastPostFaceM);
 
         /*
   * Wall boundaries at a height-changing junction:
@@ -1448,11 +1464,12 @@ export default function Scene({
   * The shared post belongs to the LOWER fence level. The two walls
   * must therefore meet at ONE shared physical boundary instead of
   * independently deciding whether they should reach `halfFaceM` or
-  * `pastRosetteM`.
+  * `pastRosetteJunctionM`.
   *
   * `halfFaceM` = the post's face boundary.
-  * `pastRosetteM` = the extra reach needed when the wall is low enough
-  * to safely pass the post face and cover the rosette area.
+  * `pastRosetteJunctionM` = the extra reach needed when the wall is low
+  * enough to safely pass the post face and cover the (symmetric, at a
+  * double post) rosette area.
   *
   * At a height-changing junction:
   * - the HIGHER wall stops/starts at the post face
@@ -1464,6 +1481,7 @@ export default function Scene({
 
         const wallToPostFaceM = halfFaceM;
         const wallToRosetteEdgeM = pastRosetteM;
+        const wallToRosetteEdgeJunctionM = pastRosetteJunctionM;
 
         // At a height-changing junction:
         // LOW wall reaches the rosette edge.
@@ -1487,7 +1505,7 @@ export default function Scene({
                 leg.baseHeightCm < prevLeg.baseHeightCm;
 
               startDistM = currentIsLower
-                ? wallToRosetteEdgeM
+                ? wallToRosetteEdgeJunctionM
                 : higherWallJunctionM;
             }
           }
@@ -1507,7 +1525,7 @@ export default function Scene({
                 leg.baseHeightCm < nextLeg.baseHeightCm;
 
               endDistM = currentIsLower
-                ? wallToRosetteEdgeM
+                ? wallToRosetteEdgeJunctionM
                 : higherWallJunctionM;
             }
           }

@@ -64,4 +64,4 @@ export const CAP_COLOR_HEX = '#2b2b2b';/**
  * purpose (see Scene.tsx). Purely cosmetic, Yam's own visual call — not
  * something to ask the client for.
  */
-export const WALL_END_OVERHANG_CM = 2;
+export const WALL_END_OVERHANG_CM = 0;
