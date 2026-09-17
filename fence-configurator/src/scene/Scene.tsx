@@ -311,7 +311,7 @@ const SHADOW_MAP_SIZE = 2048;
 const SHADOW_FRUSTUM_MARGIN_M = 0.5;
 
 // --- Cloud sprites ---
-const CLOUD_COUNT = 15;
+const CLOUD_COUNT = 30;
 // Deliberately SMALLER than SKY_ORBIT_RADIUS_M (60) — clouds should read
 // as closer/lower than the far sun/moon arc, not sit on the same shell.
 // Each cloud jitters +/- CLOUD_RADIUS_JITTER_M off this base so they
@@ -1032,7 +1032,12 @@ export default function Scene({
     drawCloudTexture(cloudCanvas);
     const cloudTexture = new THREE.CanvasTexture(cloudCanvas);
 
+    // Skipped entirely on mobile — cloud sprites weren't rendering
+    // correctly there (checked once at setup, same pattern as the rest
+    // of this one-time effect; doesn't react to a later resize/orientation
+    // change, consistent with how isMobileViewport() is used elsewhere).
     const cloudSprites: CloudSprite[] = [];
+    if (!isMobileViewport()) {
     for (let i = 0; i < CLOUD_COUNT; i++) {
       // Fully random within the whole span, not an even step-per-cloud
       // with a small jitter — the old approach kept every cloud locked
@@ -1059,6 +1064,7 @@ export default function Scene({
 
       scene.add(bright, shadow);
       cloudSprites.push({ bright, shadow, baseAzimuth, elevationM, radiusM, driftDegPerSec });
+    }
     }
     cloudSpritesRef.current = cloudSprites;
 
