@@ -260,6 +260,15 @@ interface FrameTarget {
   radius: number;
 }
 
+interface CloudSprite {
+  bright: THREE.Sprite;
+  shadow: THREE.Sprite;
+  baseAzimuth: number;
+  elevationM: number;
+  radiusM: number;
+  driftDegPerSec: number;
+}
+
 const VIEW_DIRECTION = new THREE.Vector3(2, 4.2, 11).normalize();
 const DEFAULT_POLAR = Math.acos(VIEW_DIRECTION.y);
 const DEFAULT_AZIMUTH = Math.atan2(VIEW_DIRECTION.x, VIEW_DIRECTION.z);
@@ -299,7 +308,30 @@ const SHADOW_MAP_SIZE = 2048;
 // on the frustum's boundary. Kept small on purpose: every extra meter of
 // margin spreads the same SHADOW_MAP_SIZE texel budget thinner, directly
 // costing the fine board-gap detail this frustum needs to resolve.
-const SHADOW_FRUSTUM_MARGIN_M = 0.5;// tweak these two numbers to brighten/dim the whole day or night cycle at once
+const SHADOW_FRUSTUM_MARGIN_M = 0.5;
+
+// --- Cloud sprites ---
+const CLOUD_COUNT = 15;
+// Deliberately SMALLER than SKY_ORBIT_RADIUS_M (60) — clouds should read
+// as closer/lower than the far sun/moon arc, not sit on the same shell.
+// Each cloud jitters +/- CLOUD_RADIUS_JITTER_M off this base so they
+// don't all sit on one perfect circle (flat/artificial-looking) — some
+// nearer, some farther, for actual depth variation.
+const CLOUD_ORBIT_RADIUS_M = 50;
+const CLOUD_RADIUS_JITTER_M = 15;
+const CLOUD_BASE_ELEVATION_M = 15;
+const CLOUD_ELEVATION_JITTER_M = 10;
+// Total azimuth width clouds are scattered across, centered on
+// CAMERA_FORWARD_AZIMUTH_RAD — each cloud gets a fully random azimuth
+// within this span (not an even index-based step), which is what
+// actually spreads them apart instead of clustering them together.
+const CLOUD_AZIMUTH_SPAN_DEG = 200;// Slow drift — a full 360° loop takes (360 / this) seconds, ≈12 minutes
+// at this value. Purely time-driven (performance.now()), NOT tied to
+// timeOfDayHours — only cloud COLOR is tied to the hour, not position.
+const CLOUD_DRIFT_DEG_PER_SEC = 0.5;
+const CLOUD_SHADOW_Y_OFFSET_M = 1.2;
+const CLOUD_SCALE_MIN = 10;
+const CLOUD_SCALE_MAX = 16;// tweak these two numbers to brighten/dim the whole day or night cycle at once
 // without editing each keyframe row individually.
 const SUN_BRIGHTNESS_SCALE = 3;
 const MOON_BRIGHTNESS_SCALE = 1;
@@ -412,6 +444,10 @@ interface DayNightKeyframe {
    * above. Kept low at night so metal materials don't stay artificially
    * bright once the sun/ambient lights have gone down. */
   envIntensity: number;
+  /** "Cloud Bright"/"Cloud Shadow" tokens from the palette — tint the two
+   * layers of every cloud sprite (see CloudSprite/CLOUD_* above). */
+  cloudBright: THREE.Color;
+  cloudShadow: THREE.Color;
 }
 
 // Hand-picked aesthetic values, not measured light readings — tune freely.
@@ -426,15 +462,15 @@ interface DayNightKeyframe {
 // Core (#FFF4C2) rather than pure white — a deliberate change from the
 // previous #ffffff, to stay faithful to the given palette.
 export const DAY_NIGHT_KEYFRAMES: DayNightKeyframe[] = [
-  { hour: 0, skyTop: new THREE.Color('#080F2B'), skyMid: new THREE.Color('#1D3263'), skyHorizon: new THREE.Color('#40567D'), ambient: new THREE.Color('#0C172A'), ambientIntensity: 0.22, sunColor: new THREE.Color('#FFF1C7'), glowColor: new THREE.Color('#AFC7E8'), sunIntensity: 0, moonIntensity: 0.5, groundTint: new THREE.Color('#354B48'), envIntensity: 0.1 },
-  { hour: 5, skyTop: new THREE.Color('#080F2B'), skyMid: new THREE.Color('#1D3263'), skyHorizon: new THREE.Color('#40567D'), ambient: new THREE.Color('#0C172A'), ambientIntensity: 0.24, sunColor: new THREE.Color('#FFF1C7'), glowColor: new THREE.Color('#AFC7E8'), sunIntensity: 0, moonIntensity: 0.42, groundTint: new THREE.Color('#354B48'), envIntensity: 0.12 },
-  { hour: 6.5, skyTop: new THREE.Color('#283B70'), skyMid: new THREE.Color('#C18BA4'), skyHorizon: new THREE.Color('#F6B18C'), ambient: new THREE.Color('#414D67'), ambientIntensity: 0.4, sunColor: new THREE.Color('#FFF0B5'), glowColor: new THREE.Color('#F7C17F'), sunIntensity: 0.55, moonIntensity: 0.05, groundTint: new THREE.Color('#9E9F7B'), envIntensity: 0.4 },
-   { hour: 8, skyTop: new THREE.Color('#3B82C4'), skyMid: new THREE.Color('#73B9E6'), skyHorizon: new THREE.Color('#C6E6F5'), ambient: new THREE.Color('#526779'), ambientIntensity: 0.55, sunColor: new THREE.Color('#FFF4C2'), glowColor: new THREE.Color('#FFE6A3'), sunIntensity: 0.9, moonIntensity: 0, groundTint: new THREE.Color('#5c8a4a'), envIntensity: 0.75 },
-  { hour: 12, skyTop: new THREE.Color('#3B82C4'), skyMid: new THREE.Color('#73B9E6'), skyHorizon: new THREE.Color('#C6E6F5'), ambient: new THREE.Color('#526779'), ambientIntensity: 0.65, sunColor: new THREE.Color('#FFF4C2'), glowColor: new THREE.Color('#FFE6A3'), sunIntensity: 1.1, moonIntensity: 0, groundTint: new THREE.Color('#5c8a4a'), envIntensity: 1 },
-  { hour: 16, skyTop: new THREE.Color('#3B82C4'), skyMid: new THREE.Color('#73B9E6'), skyHorizon: new THREE.Color('#C6E6F5'), ambient: new THREE.Color('#526779'), ambientIntensity: 0.55, sunColor: new THREE.Color('#FFF4C2'), glowColor: new THREE.Color('#FFE6A3'), sunIntensity: 0.9, moonIntensity: 0, groundTint: new THREE.Color('#5c8a4a'), envIntensity: 0.75 },
-  { hour: 17.5, skyTop: new THREE.Color('#343B78'), skyMid: new THREE.Color('#B96F91'), skyHorizon: new THREE.Color('#F3A16F'), ambient: new THREE.Color('#3E405E'), ambientIntensity: 0.4, sunColor: new THREE.Color('#FFD18A'), glowColor: new THREE.Color('#F47D55'), sunIntensity: 0.55, moonIntensity: 0.05, groundTint: new THREE.Color('#92785F'), envIntensity: 0.4 },
-  { hour: 19, skyTop: new THREE.Color('#080F2B'), skyMid: new THREE.Color('#1D3263'), skyHorizon: new THREE.Color('#40567D'), ambient: new THREE.Color('#0C172A'), ambientIntensity: 0.24, sunColor: new THREE.Color('#FFF1C7'), glowColor: new THREE.Color('#AFC7E8'), sunIntensity: 0, moonIntensity: 0.42, groundTint: new THREE.Color('#354B48'), envIntensity: 0.12 },
-  { hour: 24, skyTop: new THREE.Color('#080F2B'), skyMid: new THREE.Color('#1D3263'), skyHorizon: new THREE.Color('#40567D'), ambient: new THREE.Color('#0C172A'), ambientIntensity: 0.22, sunColor: new THREE.Color('#FFF1C7'), glowColor: new THREE.Color('#AFC7E8'), sunIntensity: 0, moonIntensity: 0.5, groundTint: new THREE.Color('#354B48'), envIntensity: 0.1 },
+  { hour: 0, skyTop: new THREE.Color('#080F2B'), skyMid: new THREE.Color('#1D3263'), skyHorizon: new THREE.Color('#40567D'), ambient: new THREE.Color('#0C172A'), ambientIntensity: 0.22, sunColor: new THREE.Color('#FFF1C7'), glowColor: new THREE.Color('#AFC7E8'), sunIntensity: 0, moonIntensity: 0.5, groundTint: new THREE.Color('#354B48'), envIntensity: 0.1, cloudBright: new THREE.Color('#526487'), cloudShadow: new THREE.Color('#202B4C') },
+  { hour: 5, skyTop: new THREE.Color('#080F2B'), skyMid: new THREE.Color('#1D3263'), skyHorizon: new THREE.Color('#40567D'), ambient: new THREE.Color('#0C172A'), ambientIntensity: 0.24, sunColor: new THREE.Color('#FFF1C7'), glowColor: new THREE.Color('#AFC7E8'), sunIntensity: 0, moonIntensity: 0.42, groundTint: new THREE.Color('#354B48'), envIntensity: 0.12, cloudBright: new THREE.Color('#526487'), cloudShadow: new THREE.Color('#202B4C') },
+  { hour: 6.5, skyTop: new THREE.Color('#283B70'), skyMid: new THREE.Color('#C18BA4'), skyHorizon: new THREE.Color('#F6B18C'), ambient: new THREE.Color('#414D67'), ambientIntensity: 0.4, sunColor: new THREE.Color('#FFF0B5'), glowColor: new THREE.Color('#F7C17F'), sunIntensity: 0.55, moonIntensity: 0.05, groundTint: new THREE.Color('#9E9F7B'), envIntensity: 0.4, cloudBright: new THREE.Color('#FFD0B5'), cloudShadow: new THREE.Color('#8B7192') },
+  { hour: 8, skyTop: new THREE.Color('#3B82C4'), skyMid: new THREE.Color('#73B9E6'), skyHorizon: new THREE.Color('#C6E6F5'), ambient: new THREE.Color('#526779'), ambientIntensity: 0.55, sunColor: new THREE.Color('#FFF4C2'), glowColor: new THREE.Color('#FFE6A3'), sunIntensity: 0.9, moonIntensity: 0, groundTint: new THREE.Color('#5c8a4a'), envIntensity: 0.75, cloudBright: new THREE.Color('#FFFFFF'), cloudShadow: new THREE.Color('#D4E3EB') },
+  { hour: 12, skyTop: new THREE.Color('#3B82C4'), skyMid: new THREE.Color('#73B9E6'), skyHorizon: new THREE.Color('#C6E6F5'), ambient: new THREE.Color('#526779'), ambientIntensity: 0.65, sunColor: new THREE.Color('#FFF4C2'), glowColor: new THREE.Color('#FFE6A3'), sunIntensity: 1.1, moonIntensity: 0, groundTint: new THREE.Color('#5c8a4a'), envIntensity: 1, cloudBright: new THREE.Color('#FFFFFF'), cloudShadow: new THREE.Color('#D4E3EB') },
+  { hour: 16, skyTop: new THREE.Color('#3B82C4'), skyMid: new THREE.Color('#73B9E6'), skyHorizon: new THREE.Color('#C6E6F5'), ambient: new THREE.Color('#526779'), ambientIntensity: 0.55, sunColor: new THREE.Color('#FFF4C2'), glowColor: new THREE.Color('#FFE6A3'), sunIntensity: 0.9, moonIntensity: 0, groundTint: new THREE.Color('#5c8a4a'), envIntensity: 0.75, cloudBright: new THREE.Color('#FFFFFF'), cloudShadow: new THREE.Color('#D4E3EB') },
+  { hour: 17.5, skyTop: new THREE.Color('#343B78'), skyMid: new THREE.Color('#B96F91'), skyHorizon: new THREE.Color('#F3A16F'), ambient: new THREE.Color('#3E405E'), ambientIntensity: 0.4, sunColor: new THREE.Color('#FFD18A'), glowColor: new THREE.Color('#F47D55'), sunIntensity: 0.55, moonIntensity: 0.05, groundTint: new THREE.Color('#92785F'), envIntensity: 0.4, cloudBright: new THREE.Color('#F6B5A0'), cloudShadow: new THREE.Color('#735675') },
+  { hour: 19, skyTop: new THREE.Color('#080F2B'), skyMid: new THREE.Color('#1D3263'), skyHorizon: new THREE.Color('#40567D'), ambient: new THREE.Color('#0C172A'), ambientIntensity: 0.24, sunColor: new THREE.Color('#FFF1C7'), glowColor: new THREE.Color('#AFC7E8'), sunIntensity: 0, moonIntensity: 0.42, groundTint: new THREE.Color('#354B48'), envIntensity: 0.12, cloudBright: new THREE.Color('#526487'), cloudShadow: new THREE.Color('#202B4C') },
+  { hour: 24, skyTop: new THREE.Color('#080F2B'), skyMid: new THREE.Color('#1D3263'), skyHorizon: new THREE.Color('#40567D'), ambient: new THREE.Color('#0C172A'), ambientIntensity: 0.22, sunColor: new THREE.Color('#FFF1C7'), glowColor: new THREE.Color('#AFC7E8'), sunIntensity: 0, moonIntensity: 0.5, groundTint: new THREE.Color('#354B48'), envIntensity: 0.1, cloudBright: new THREE.Color('#526487'), cloudShadow: new THREE.Color('#202B4C') },
 ];
 
 /** Linearly interpolates between the two DAY_NIGHT_KEYFRAMES bracketing `hour` (wraps across 0–24). */
@@ -461,8 +497,10 @@ function sampleDayNight(hour: number) {
     glowColor: lo.glowColor.clone().lerp(hi.glowColor, t),
     sunIntensity: THREE.MathUtils.lerp(lo.sunIntensity, hi.sunIntensity, t) * SUN_BRIGHTNESS_SCALE,
     moonIntensity: THREE.MathUtils.lerp(lo.moonIntensity, hi.moonIntensity, t) * MOON_BRIGHTNESS_SCALE,
-    groundTint: lo.groundTint.clone().lerp(hi.groundTint, t),
+   groundTint: lo.groundTint.clone().lerp(hi.groundTint, t),
     envIntensity: THREE.MathUtils.lerp(lo.envIntensity, hi.envIntensity, t),
+    cloudBright: lo.cloudBright.clone().lerp(hi.cloudBright, t),
+    cloudShadow: lo.cloudShadow.clone().lerp(hi.cloudShadow, t),
   };
 }
 
@@ -545,6 +583,43 @@ function easeInOutQuad(t: number) {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 }
 
+/** Places a point on a circle of radius `radiusM` at world height
+ * `elevationM`, at azimuth `azimuthRad` — same atan2(x,z) convention as
+ * CAMERA_FORWARD_AZIMUTH_RAD/skyDirectionForHour above (0 = along +Z,
+ * increasing toward +X). Drives cloud drift, independent of
+ * timeOfDayHours — driven purely by elapsed real time in the render
+ * loop, not the hour slider. */
+function cloudPositionForAzimuth(azimuthRad: number, elevationM: number, radiusM: number): THREE.Vector3 {
+  return new THREE.Vector3(Math.sin(azimuthRad) * radiusM, elevationM, Math.cos(azimuthRad) * radiusM);
+}
+
+/** Draws one shared, blotchy soft-alpha cloud silhouette onto `canvas` —
+ * several overlapping soft circles at fixed offsets, alpha compounding
+ * naturally via source-over blending where they overlap, giving an
+ * irregular puffy edge instead of a perfect circle. Pure white — actual
+ * per-cloud tinting happens via each Sprite's own material.color (see the
+ * day/night effect), not baked into this shared texture. */
+function drawCloudTexture(canvas: HTMLCanvasElement) {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const w = canvas.width;
+  const h = canvas.height;
+  const blobs: [number, number, number][] = [
+    [w * 0.5, h * 0.55, w * 0.32],
+    [w * 0.28, h * 0.6, w * 0.22],
+    [w * 0.72, h * 0.6, w * 0.24],
+    [w * 0.4, h * 0.4, w * 0.2],
+    [w * 0.62, h * 0.42, w * 0.18],
+  ];
+  for (const [cx, cy, r] of blobs) {
+    const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    gradient.addColorStop(0, 'rgba(255,255,255,0.9)');
+    gradient.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, w, h);
+  }
+}
+
 /** Which leg indices changed between two shapes, and whether this kind of change is allowed to reset the viewing angle back to default. Null means nothing in legs/junctions differs (e.g. only color changed). */
 function diffFocusLegs(prev: Shape, next: Shape): { legIndices: number[]; resetAngle: boolean } | null {
   if (next.legs.length !== prev.legs.length) {
@@ -613,8 +688,11 @@ export default function Scene({
   const skyCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const skyTextureRef = useRef<THREE.CanvasTexture | null>(null);
   const sunGlowRef = useRef<THREE.Sprite | null>(null);
-  const moonGlowRef = useRef<THREE.Sprite | null>(null);
-  const onStatsRef = useRef(onStats);  onStatsRef.current = onStats;
+   const moonGlowRef = useRef<THREE.Sprite | null>(null);
+  // Shadow-only proxy group + shared material — see the post-loop comment
+  // in the shape-rebuild effect for why these exist.
+  const cloudSpritesRef = useRef<CloudSprite[]>([]);
+  const onStatsRef = useRef(onStats);
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
   const selectionRef = useRef(selection);
@@ -871,10 +949,17 @@ export default function Scene({
     // sized to the fence's actual bounds in the shape-rebuild effect below
     // (see updateShadowFrustum), not here; these are just safe fallback
     // defaults before the first shape ever builds.
-    sky.shadow.bias = -0.0015;
+    // Reduced from -0.0015 — that magnitude was pulling shadows visibly
+    // away from the base of tall/vertical surfaces (the wall, posts),
+    // making them look like they don't touch the ground (peter-panning).
+    // If shadow acne (speckled self-shadow noise on flat surfaces)
+    // reappears at this lower magnitude, nudge back up gradually rather
+    // than jumping straight to -0.0015 again.
+    sky.shadow.bias = -0.0005;
     // PCFSoftShadowMap's own blur radius (in shadow-map texels, not
     // world units) — default (~1) was already soft; the fine board-gap
     // detail needed something closer to a hard edge. Lower = sharper.
+    sky.shadow.radius = 1;
     sky.shadow.radius = 1;
     sky.shadow.camera.near = 0.5;
     sky.shadow.camera.far = 80;
@@ -934,12 +1019,64 @@ export default function Scene({
     moonGlowRef.current = moonGlow;
     scene.add(sunGlow, moonGlow);
 
-      const ground = new THREE.GridHelper(200, 200, 0x424242, 0xa1bed1);
+    // Cloud sprites — CLOUD_COUNT puffs, each a bright top layer + a
+    // larger, dimmer, downward-offset shadow layer sharing one blotchy
+    // alpha texture (drawCloudTexture), tinted per-hour from the
+    // palette's own Cloud Bright/Cloud Shadow tokens (see the day/night
+    // effect below). Positions drift continuously via elapsed real time
+    // in the render loop (cloudAnimStartMs, in animate() below) —
+    // independent of timeOfDayHours, which only controls their COLOR.
+    const cloudCanvas = document.createElement('canvas');
+    cloudCanvas.width = 128;
+    cloudCanvas.height = 96;
+    drawCloudTexture(cloudCanvas);
+    const cloudTexture = new THREE.CanvasTexture(cloudCanvas);
+
+    const cloudSprites: CloudSprite[] = [];
+    for (let i = 0; i < CLOUD_COUNT; i++) {
+      // Fully random within the whole span, not an even step-per-cloud
+      // with a small jitter — the old approach kept every cloud locked
+      // near its own narrow slot, which read as one tight cluster rather
+      // than a genuinely scattered sky.
+      const baseAzimuth = CAMERA_FORWARD_AZIMUTH_RAD + THREE.MathUtils.degToRad((Math.random() - 0.5) * CLOUD_AZIMUTH_SPAN_DEG);
+      const elevationM = CLOUD_BASE_ELEVATION_M + (Math.random() - 0.5) * CLOUD_ELEVATION_JITTER_M;
+      const radiusM = CLOUD_ORBIT_RADIUS_M + (Math.random() - 0.5) * CLOUD_RADIUS_JITTER_M;
+      const driftDegPerSec = CLOUD_DRIFT_DEG_PER_SEC * (0.7 + Math.random() * 0.6);
+      // Nearer clouds (smaller radius) read bigger, farther ones smaller —
+      // reinforces the depth variation from radiusM instead of scale
+      // being purely random and disconnected from distance.
+      const radiusT = (radiusM - (CLOUD_ORBIT_RADIUS_M - CLOUD_RADIUS_JITTER_M / 2)) / CLOUD_RADIUS_JITTER_M;
+      const scale = THREE.MathUtils.lerp(CLOUD_SCALE_MAX, CLOUD_SCALE_MIN, THREE.MathUtils.clamp(radiusT, 0, 1));
+
+      const bright = new THREE.Sprite(
+        new THREE.SpriteMaterial({ map: cloudTexture, transparent: true, depthWrite: false }),
+      );
+      bright.scale.set(scale, scale * 0.6, 1);
+      const shadow = new THREE.Sprite(
+        new THREE.SpriteMaterial({ map: cloudTexture, transparent: true, depthWrite: false, opacity: 0.5 }),
+      );
+      shadow.scale.set(scale * 1.15, scale * 0.7, 1);
+
+      scene.add(bright, shadow);
+      cloudSprites.push({ bright, shadow, baseAzimuth, elevationM, radiusM, driftDegPerSec });
+    }
+    cloudSpritesRef.current = cloudSprites;
+
+    const ground = new THREE.GridHelper(200, 200, 0xc9d2d8, 0xdfe5e9);
     // opacity has no visible effect until transparent:true is set — off by
     // default on GridHelper's material.
     const gridMat = ground.material as THREE.Material;
     gridMat.transparent = true;
     gridMat.opacity = GRID_OPACITY;
+    // polygonOffset pushes the grid slightly FORWARD in the depth buffer
+    // (not in world space) so it wins z-fighting against the grass plane
+    // sitting at the exact same y — this replaces the old approach of
+    // physically offsetting the grass to y=-0.01, which created a real,
+    // visible gap between the grass and the fence/wall base sitting at
+    // y=0. Negative factor/units = closer to camera.
+    gridMat.polygonOffset = true;
+    gridMat.polygonOffsetFactor = -1;
+    gridMat.polygonOffsetUnits = -1;
     scene.add(ground);
     // Grass ground plane, same footprint as the grid above it. Offset
     // slightly below y=0 so the grid's own lines render on top instead of
@@ -951,9 +1088,12 @@ export default function Scene({
       roughness: 0.95,
       metalness: 0,
     });
-     const groundMesh = new THREE.Mesh(groundMeshGeo, groundMeshMat);
+    const groundMesh = new THREE.Mesh(groundMeshGeo, groundMeshMat);
     groundMesh.rotation.x = -Math.PI / 2;
-    groundMesh.position.y = -0.01;
+    // Sits exactly at y=0 now (no more -0.01 offset) — flush with the
+    // fence/wall base. The grid's own polygonOffset above is what keeps
+    // it visible on top instead of z-fighting, so this mesh no longer
+    // needs to physically sit below true ground level.
     groundMesh.receiveShadow = true;
     groundMatRef.current = groundMeshMat;
     scene.add(groundMesh);    const fenceGroup = new THREE.Group();
@@ -1122,6 +1262,7 @@ export default function Scene({
     let frameCount = 0;
     let lastFpsSample = performance.now();
     let rafId: number;
+    const cloudAnimStartMs = performance.now();
 
     const animate = () => {
       rafId = requestAnimationFrame(animate);
@@ -1145,8 +1286,14 @@ export default function Scene({
         controls.update();
       }
 
+      const cloudElapsedSec = (performance.now() - cloudAnimStartMs) / 1000;
+      for (const cloud of cloudSprites) {
+        const azimuth = cloud.baseAzimuth + THREE.MathUtils.degToRad(cloud.driftDegPerSec * cloudElapsedSec);
+        const pos = cloudPositionForAzimuth(azimuth, cloud.elevationM, cloud.radiusM);
+        cloud.bright.position.copy(pos);
+        cloud.shadow.position.set(pos.x, pos.y - CLOUD_SHADOW_Y_OFFSET_M, pos.z);
+      }
       renderer.render(scene, camera);
-
       frameCount++;
       const now = performance.now();
       if (now - lastFpsSample >= 500) {
@@ -1301,6 +1448,11 @@ export default function Scene({
       haloTexture.dispose();
       sunGlow.material.dispose();
       moonGlow.material.dispose();
+      cloudSprites.forEach((c) => {
+        (c.bright.material as THREE.Material).dispose();
+        (c.shadow.material as THREE.Material).dispose();
+      });
+      cloudTexture.dispose();
       container.removeChild(renderer.domElement);
     };
   }, []);
@@ -1365,20 +1517,21 @@ export default function Scene({
     sunGlow.position.copy(sunDir);
     sunGlow.material.color.copy(sample.glowColor);
     sunGlow.material.opacity = Math.min(1, sunIntensity);
-    moonGlow.position.copy(moonDir);
+     moonGlow.position.copy(moonDir);
     moonGlow.material.color.copy(sample.glowColor);
     moonGlow.material.opacity = Math.min(1, moonIntensity * 1.4);
 
-    // scene.environment is otherwise a FIXED light source — it does not
-    // dim on its own just because ambient/sun/moon went down. Retune
-    // every existing MeshStandardMaterial in the scene directly
-    // (sunMesh/moonMesh use MeshBasicMaterial — unlit by design — so
-    // they're untouched by this).
-   // Single global scalar — scales scene.environment's contribution to
+    // Cloud tint only — position/drift is handled continuously in the
+    // render loop (cloudAnimStartMs in the setup effect), not here.
+    for (const cloud of cloudSpritesRef.current) {
+      (cloud.bright.material as THREE.SpriteMaterial).color.copy(sample.cloudBright);
+      (cloud.shadow.material as THREE.SpriteMaterial).color.copy(sample.cloudShadow);
+    }
+
+    // Single global scalar — scales scene.environment's contribution to
     // EVERY material in the scene at once. Requires three.js r162+; if
     // your installed version predates that, this silently does nothing
-    // (no error) and materials stay at full brightness at night — if that
-    // happens, revert to per-material envMapIntensity + scene.traverse.
+    // (no error) and materials stay at full brightness at night.
     scene.environmentIntensity = sample.envIntensity;
   }, [timeOfDayHours]);
 
@@ -1745,8 +1898,9 @@ export default function Scene({
           baseM / 2,
           field.position.z + Math.sin(field.heading) * wallCenterOffsetM,
         );
-        wallMesh.rotation.y = -field.heading;
+       wallMesh.rotation.y = -field.heading;
         wallMesh.userData.kind = 'wall';
+        wallMesh.castShadow = true;
         wallMesh.receiveShadow = true;
         fenceGroup.add(wallMesh);
       }

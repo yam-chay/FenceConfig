@@ -26,15 +26,6 @@ const FENCE_COLORS = [
   { name: 'ירוק בקבוק', hex: '#3f5a45' },
 ];
 
-// Quick-jump presets for the day/night slider — hours feed straight into
-// Scene's DAY_NIGHT_KEYFRAMES sampler, same scale as the slider itself.
-const TIME_OF_DAY_PRESETS: { label: string; hour: number }[] = [
-  { label: 'זריחה', hour: 6.5 },
-  { label: 'צהריים', hour: 12 },
-  { label: 'שקיעה', hour: 17.5 },
-  { label: 'לילה — ירח מלא', hour: 0 },
-];
-
 const JUNCTION_LABELS: Record<Junction['type'], string> = {
   right: 'שמאלה',
   left: 'ימינה',
@@ -460,14 +451,28 @@ function CircularTimeSlider({ hours, onChange }: { hours: number; onChange: (hou
   const trackRef = useRef<HTMLDivElement | null>(null);
   const draggingRef = useRef(false);
 
-  // Curated subset of DAY_NIGHT_KEYFRAMES (not all 9) — fewer, sharper
-  // stops for a stark day/night look instead of a smoothed rainbow.
-  // Indices: 0=hour0(night), 2=hour6.5(sunrise), 4=hour12(day), 6=hour17.5(sunset), 8=hour24(night).
+  // Single rotation constant — shifts the WHOLE dial (gradient colors +
+  // handle placement + drag math) together so they stay in sync. 180°
+  // puts the brightest keyframe (noon, index 4) at the top and the
+  // darkest (midnight, index 0) at the bottom, instead of the
+  // "unrotated" default where midnight sits at top. Change this ONE
+  // number to re-tune the orientation — never hand-swap which keyframe
+  // index feeds which variable below, that was the earlier hack and it
+  // desyncs the handle from the visual gradient.
+  const DIAL_ROTATION_DEG = 180;
+  const DIAL_ROTATION_RAD = (DIAL_ROTATION_DEG * Math.PI) / 180;
+
+  // Honest labels again — night truly IS the night color, etc. Indices:
+  // 0=hour0(night), 2=hour6.5(sunrise), 4=hour12(day), 6=hour17.5(sunset).
   const night = `#${DAY_NIGHT_KEYFRAMES[0].skyMid.getHexString()}`;
   const sunrise = `#${DAY_NIGHT_KEYFRAMES[2].skyMid.getHexString()}`;
   const day = `#${DAY_NIGHT_KEYFRAMES[4].skyMid.getHexString()}`;
   const sunset = `#${DAY_NIGHT_KEYFRAMES[6].skyMid.getHexString()}`;
-  const gradient = `conic-gradient(
+  // `from ${DIAL_ROTATION_DEG}deg` rotates the WHOLE authored pattern
+  // (whose stops below still assume 0deg=night/top, unrotated) to the
+  // actual visual angle — same rotation angleToHours/handleAngle apply
+  // below, so all three agree on where "hour 0" visually sits.
+  const gradient = `conic-gradient(from ${DIAL_ROTATION_DEG}deg,
     ${night} 0deg, ${night} 82deg,
     ${sunrise} 96deg,
     ${day} 112deg, ${day} 248deg,
@@ -483,10 +488,15 @@ function CircularTimeSlider({ hours, onChange }: { hours: number; onChange: (hou
     const dy = clientY - (rect.top + rect.height / 2);
     let angle = Math.atan2(dy, dx) + Math.PI / 2; // 0 at 12 o'clock, clockwise
     if (angle < 0) angle += Math.PI * 2;
+    // Undo the dial's own rotation before converting to hours, so
+    // dragging onto a given color always yields the hour that color
+    // actually represents.
+    angle -= DIAL_ROTATION_RAD;
+    if (angle < 0) angle += Math.PI * 2;
     return (angle / (Math.PI * 2)) * 24;
   }
 
- function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
+  function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
     e.preventDefault();
     draggingRef.current = true;
     (e.target as Element).setPointerCapture(e.pointerId);
@@ -500,7 +510,10 @@ function CircularTimeSlider({ hours, onChange }: { hours: number; onChange: (hou
     draggingRef.current = false;
   }
 
-  const handleAngle = (hours / 24) * Math.PI * 2 - Math.PI / 2;
+  // Same DIAL_ROTATION_RAD applied here (added instead of subtracted —
+  // this is the inverse of angleToHours) so the handle marker always
+  // sits on the correct color for the current hour.
+  const handleAngle = (hours / 24) * Math.PI * 2 + DIAL_ROTATION_RAD - Math.PI / 2;
   const HANDLE_RADIUS_PCT = 44;
   const handleX = 50 + HANDLE_RADIUS_PCT * Math.cos(handleAngle);
   const handleY = 50 + HANDLE_RADIUS_PCT * Math.sin(handleAngle);
