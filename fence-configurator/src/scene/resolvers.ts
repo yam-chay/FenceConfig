@@ -1,6 +1,7 @@
 import { resolveBoardDims, FENCE_CATALOG } from '../geometry/catalog';
 import type { ResolvedBoardDims } from '../geometry/field';
 import type { ColorScheme, ProfileScheme } from './types';
+import { SPACER_OPTIONS } from './spacerOptions';
 
 /** Pure — used by both the scene (to color meshes) and the panel (to seed the color picker with a board's current color on click). Step-indexed now, same as resolveBoardProfile — see BoardColorRule's doc comment in types.ts for why. */
 export function resolveBoardColorHex(
@@ -116,15 +117,32 @@ export function resolveBoardStepCandidates(
 
   if (fromRule) return [primary];
 
+  // Fallback candidates now cross EVERY catalog model/size with EVERY
+  // valid spacer multiplier (SPACER_OPTIONS) — not just the currently
+  // resolved spacer value — so a gap that only closes with, say, a zero
+  // spacer on a specific model/size combination is still found. Same
+  // "closest fit without exceeding, no cutting" philosophy already used
+  // for base-height matching, just extended along the spacer dimension
+  // too. Confirmed with the client: some real installs close a field
+  // with a zero-spacer step.
+  //
+  // Note: this can now try a DIFFERENT spacer than an explicit spacer
+  // rule at this step, if that rule's own value doesn't fit — there's no
+  // "fromRule" guard for spacer the way there is for profile above. If
+  // you want an explicit spacer choice protected from being overridden
+  // here too, that needs a small follow-up (threading a similar fromRule
+  // signal out of resolveSpacerMultiplier).
   const alternates: ResolvedBoardDims[] = FENCE_CATALOG.flatMap((model) =>
-    model.sizes
-      .filter((size) => !(model.id === modelId && size.id === sizeId))
-      .map((size) => ({
+    model.sizes.flatMap((size) =>
+      SPACER_OPTIONS.filter(
+        (opt) => !(model.id === modelId && size.id === sizeId && opt.value === spacerMultiplier),
+      ).map((opt) => ({
         modelId: model.id,
         sizeId: size.id,
         boardHeightCm: size.boardHeightCm,
-        spacerHeightCm: size.spacerHeightCm * spacerMultiplier,
+        spacerHeightCm: size.spacerHeightCm * opt.value,
       })),
+    ),
   ).sort((a, b) => b.boardHeightCm + b.spacerHeightCm - (a.boardHeightCm + a.spacerHeightCm));
 
   return [primary, ...alternates];

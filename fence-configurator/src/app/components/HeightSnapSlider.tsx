@@ -1,68 +1,60 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Leg } from '../../geometry/shape';
-import { ROSETTE_OFFSET_CM } from '../../geometry/constants';
-import { formatTrimmed } from '../utils/numberUtils';
+import { formatTrimmed, roundToDecimals } from '../utils/numberUtils';
 
 /**
- * Closing height, confirmed to always snap to an exact board-stack total —
- * no fine-precision mode here (unlike base height): any sub-board offset
- * would reintroduce the exact top gap this is meant to eliminate.
+ * Fence height, in plain cm — 20 to 200. Used to snap to an exact
+ * board-stack total (min/max/step derived from ONE board type, so every
+ * value on the slider corresponded to a whole number of boards). Reverted
+ * to plain cm jumps: with resolveBoardStepCandidates now searching every
+ * model/size AND every spacer option (SPACER_OPTIONS — see
+ * scene/resolvers.ts) for whatever gets closest to the target without
+ * cutting a board, the worst-case leftover gap before the cap is small
+ * enough (confirmed against the catalog: every step size 2–9 cm is
+ * reachable, so the greedy fill never leaves more than ~1cm uncovered) —
+ * and the cap already hides a gap that small. No need to constrain the
+ * slider itself to discrete board-count stops anymore.
  *
- * Consecutive board counts differ by exactly one board + one spacer, so
- * valid heights form a plain arithmetic sequence: min = baseHeightCm +
- * ROSETTE_OFFSET_CM + boardHeightCm (one board), then every +
- * (boardHeightCm + spacerHeightCm) after that. A native range input
- * reproduces that on its own via min/step — no discrete snapping logic
- * needed in the UI. min/max are then nudged onto the nearest valid rung at
- * or past the practical 60/200cm bounds the coarse height slider used to
- * use directly.
- *
- * The popover here asks for a board COUNT, not a height — guaranteeing
- * validity by construction rather than by clamping a typed decimal.
+ * `boardCount` is the REAL count for this leg, computed in Scene.tsx from
+ * the actual per-step resolved stack (profile rules, spacer fallback
+ * search included) and passed down via App's onStats callback — not an
+ * approximation from the leg's default board type, which could read
+ * wildly wrong (e.g. showing 25 when an explicit profile rule actually
+ * put 66 boards on this leg).
  */
 export function HeightSnapSlider({
   label,
   leg,
-  boardHeightCm,
-  spacerHeightCm,
+  boardCount,
   onChangeHeight,
 }: {
   label: string;
   leg: Leg;
-  boardHeightCm: number;
-  spacerHeightCm: number;
+  boardCount: number;
   onChangeHeight: (heightCm: number) => void;
 }) {
   const [editorOpen, setEditorOpen] = useState(false);
-  const [editorCount, setEditorCount] = useState('1');
-  const countInputRef = useRef<HTMLInputElement | null>(null);
+  const [editorValue, setEditorValue] = useState('0');
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
-  const FLOOR_CM = 60;
+  const FLOOR_CM = 20;
   const CEIL_CM = 200;
-  const stepCm = boardHeightCm + spacerHeightCm;
-  const oneBoardCm = leg.baseHeightCm + ROSETTE_OFFSET_CM + boardHeightCm;
-  const stepsToFloor = Math.max(0, Math.ceil((FLOOR_CM - oneBoardCm) / stepCm));
-  const minCm = oneBoardCm + stepsToFloor * stepCm;
-  const stepsToCeil = Math.max(0, Math.floor((CEIL_CM - oneBoardCm) / stepCm));
-  const maxCm = Math.max(minCm, oneBoardCm + stepsToCeil * stepCm);
-
-  const boardCount = Math.max(1, Math.round((leg.heightCm - oneBoardCm) / stepCm) + 1);
 
   function openEditor() {
-    setEditorCount(String(boardCount));
+    setEditorValue(leg.heightCm.toFixed(1));
     setEditorOpen(true);
   }
 
   useEffect(() => {
     if (editorOpen) {
-      countInputRef.current?.focus();
-      countInputRef.current?.select();
+      inputRef.current?.focus();
+      inputRef.current?.select();
     }
   }, [editorOpen]);
 
   function applyEditor() {
-    const n = Math.max(1, Math.round(Number(editorCount) || 1));
-    onChangeHeight(oneBoardCm + (n - 1) * stepCm);
+    const n = Math.max(FLOOR_CM, Math.min(CEIL_CM, roundToDecimals(Number(editorValue) || FLOOR_CM, 1)));
+    onChangeHeight(n);
     setEditorOpen(false);
   }
 
@@ -87,23 +79,26 @@ export function HeightSnapSlider({
         <>
           <div className="value-popover-backdrop" onClick={() => setEditorOpen(false)} />
           <div className="value-popover" onKeyDown={handleKeyDown} role="dialog" aria-label={`הזנה ידנית — ${label}`}>
-            <div className="value-popover-title">{label} — מספר שלבים</div>
+            <div className="value-popover-title">{label} — הזנה ידנית</div>
             <div className="value-popover-fields">
               <span className="value-popover-field-group">
                 <input
-                  ref={countInputRef}
+                  ref={inputRef}
                   type="number"
-                  min={1}
-                  step={1}
+                  min={FLOOR_CM}
+                  max={CEIL_CM}
+                  step={0.1}
                   className="value-popover-input"
-                  value={editorCount}
+                  value={editorValue}
                   onFocus={(e) => e.target.select()}
-                  onChange={(e) => setEditorCount(e.target.value.replace(/[^\d]/g, ''))}
+                  onChange={(e) => setEditorValue(e.target.value)}
                 />
-                <span className="value-popover-unit">שלבים</span>
+                <span className="value-popover-unit">ס״מ</span>
               </span>
             </div>
-            <div className="value-popover-hint">הגובה תמיד ייצמד למספר שלם של שלבים — אין פער בקצה העליון</div>
+            <div className="value-popover-hint">
+              טווח {FLOOR_CM}–{CEIL_CM} ס״מ
+            </div>
             <div className="value-popover-actions">
               <button type="button" className="value-popover-apply" onClick={applyEditor}>
                 החל
@@ -118,9 +113,9 @@ export function HeightSnapSlider({
 
       <input
         type="range"
-        min={minCm}
-        max={maxCm}
-        step={stepCm}
+        min={FLOOR_CM}
+        max={CEIL_CM}
+        step={1}
         value={leg.heightCm}
         onChange={(e) => onChangeHeight(Number(e.target.value))}
       />

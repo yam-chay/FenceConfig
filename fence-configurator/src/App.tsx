@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react';
+import { SPACER_OPTIONS } from './scene/spacerOptions';
 import Scene, { type ColorScheme, type ProfileScheme, type Selection } from './scene/Scene';
 import type { Shape, Junction } from './geometry/shape';
-import { FENCE_CATALOG, resolveBoardDims } from './geometry/catalog';
+import { FENCE_CATALOG } from './geometry/catalog';
 import { POST_THICKNESS_CM, POST_ACCESSORY_WIDTH_MULTIPLIER } from './geometry/constants';
 import { FENCE_COLORS, defaultShape, defaultColorScheme, defaultProfileScheme } from './app/defaults';
 import { formatTrimmed } from './app/utils/numberUtils';
@@ -82,6 +83,8 @@ export default function App() {
     postCount: 0,
     doublePostCount: 0,
     fieldCount: 0,
+    boardCountByLeg: {} as Record<number, number>,
+    boardCountByField: {} as Record<string, number>,
   });
 
   const {
@@ -132,6 +135,15 @@ export default function App() {
       ) ||
       colorScheme.boardRules.some((r) => r.scope === 'field' && r.legIndex === legIndex && r.fieldIndex === fieldIndex)
     );
+  })();
+
+  // Total step count for the SELECTED field specifically — not summed
+  // across the leg (see boardCountByField's doc comment in Scene.tsx):
+  // sibling fields in the same leg can have different counts once
+  // field-scoped rules are in play.
+  const selectedFieldTotalSteps = (() => {
+    if (selection?.kind !== 'board') return 0;
+    return stats.boardCountByField[`${selection.legIndex}:${selection.fieldIndex}`] ?? 0;
   })();
 
   return (
@@ -236,8 +248,8 @@ export default function App() {
             <div className="bottom-sheet-header">
               <span>
                 {selection.stepIndices.length > 1
-                  ? `עריכת שלבים — ${selection.stepIndices.length} שלבים נבחרו`
-                  : `שלב ${selection.stepIndex + 1} — בגובה ${Math.round(selection.heightCm)} ס״מ`}{' '}
+                  ? `עריכת שלבים — ${selection.stepIndices.length} שלבים נבחרו מתוך ${selectedFieldTotalSteps}`
+                  : `שלב ${selection.stepIndex + 1} מתוך ${selectedFieldTotalSteps} — בגובה ${Math.round(selection.heightCm)} ס״מ`}{' '}
                 (רגל {selection.legIndex + 1}, שדה{' '}
                 {selection.fieldIndex + 1})
               </span>
@@ -320,11 +332,7 @@ export default function App() {
                 <div className="carousel-row">
                   <span className="carousel-label">רווח מתחת לשלב הזה — לחיצה קובעת מיד רק אותו</span>
                   <div className="carousel">
-                    {[
-                      { label: 'אפס', value: 0},
-                      { label: 'רגיל', value: 1 },
-                      { label: 'כפול', value: 2 },
-                    ].map((opt) => (
+                    {SPACER_OPTIONS.map((opt) => (
                       <button
                         key={opt.value}
                         className={pendingSpacer === opt.value ? 'carousel-item active' : 'carousel-item'}
@@ -525,8 +533,7 @@ export default function App() {
                       <HeightSnapSlider
                         label="גובה גדר"
                         leg={leg}
-                        boardHeightCm={resolveBoardDims(leg.modelId, leg.sizeId).boardHeightCm}
-                        spacerHeightCm={resolveBoardDims(leg.modelId, leg.sizeId).spacerHeightCm}
+                        boardCount={stats.boardCountByLeg[legIndex] ?? 0}
                         onChangeHeight={(v) => updateLeg(legIndex, (l) => ({ ...l, heightCm: v }))}
                       />
                     </>

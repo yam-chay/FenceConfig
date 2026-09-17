@@ -18,7 +18,7 @@ import {
 import type { Selection, ColorScheme, ProfileScheme } from './types';
 import { resolveBoardColorHex, resolveBoardStepCandidates } from './resolvers';
 import { VIEW_DIRECTION, CAMERA_FORWARD_AZIMUTH_RAD } from './constants';
-import { drawSkyGradient, skyDirectionForHour, sampleDayNight, DAY_NIGHT_KEYFRAMES } from './environment/dayNightCycle';
+import { drawSkyGradient, skyDirectionForHour, sampleDayNight } from './environment/dayNightCycle';
 import {
   CLOUD_COUNT,
   CLOUD_ORBIT_RADIUS_M,
@@ -53,6 +53,16 @@ interface SceneProps {
     postCount: number;
     doublePostCount: number;
     fieldCount: number;
+    /** Board count per leg (keyed by legIndex) — the REAL count from the
+     * actual per-step resolved stack (profile rules, spacer fallback
+     * search included), not an approximation from the leg's default board
+     * type alone. Drives the "(X שלבים)" readout in HeightSnapSlider. */
+    boardCountByLeg: Record<number, number>;
+    /** Board count per FIELD (keyed by `${legIndex}:${fieldIndex}`) — same
+     * real per-step count as boardCountByLeg, but not summed across a
+     * leg's fields, since sibling fields can differ (field-scoped rules).
+     * Drives the "שלב X מתוך Y" readout in the board-edit sheet header. */
+    boardCountByField: Record<string, number>;
   }) => void;
   /** When the caller sets .current = true before a shape change, that ONE
    * change skips the camera reframe it would otherwise trigger (consumed
@@ -283,7 +293,14 @@ export default function Scene({
   onSelectRef.current = onSelect;
   const selectionRef = useRef(selection);
   selectionRef.current = selection;
-  const geometryStatsRef = useRef({ boardCount: 0, postCount: 0, doublePostCount: 0, fieldCount: 0 });
+  const geometryStatsRef = useRef({
+    boardCount: 0,
+    postCount: 0,
+    doublePostCount: 0,
+    fieldCount: 0,
+    boardCountByLeg: {} as Record<number, number>,
+    boardCountByField: {} as Record<string, number>,
+  });
 
   const shapeBoundsRef = useRef<FrameTarget>({ centerX: 4, centerY: 0.8, centerZ: 0, radius: 4 });
   const legBoundsRef = useRef<Map<number, { minX: number; maxX: number; minZ: number; maxZ: number; topM: number }>>(
@@ -1095,6 +1112,12 @@ export default function Scene({
     sky.color.copy(sample.sunColor);
     sky.intensity = totalIntensity;
 
+    // Same near/far fix as the shape-rebuild effect's shadow-frustum
+    // block, but keyed here too: the light's POSITION changes on every
+    // hour change alone (mergedDir above), with no shape/color/selection
+    // change to trigger that other effect — so near/far need refreshing
+    // here as well, using the last-known fence bounds (shapeBoundsRef;
+    // updated fresh by the shape-rebuild effect whenever it runs).
     const shadowHalfWidth = Math.max(shapeBoundsRef.current.radius, 1) + SHADOW_FRUSTUM_MARGIN_M;
     const lightDistance = sky.position.distanceTo(sky.target.position);
     sky.shadow.camera.near = Math.max(0.1, lightDistance - shadowHalfWidth * 2);
@@ -1245,6 +1268,8 @@ export default function Scene({
     let totalBoards = 0;
     let totalPosts = 0;
     let totalDoublePosts = 0;
+    const boardCountByLeg: Record<number, number> = {};
+    const boardCountByField: Record<string, number> = {};
 
     const legBounds = new Map<number, { minX: number; maxX: number; minZ: number; maxZ: number; topM: number }>();
     function includeInLeg(legIndex: number, x: number, z: number, topM: number) {
@@ -1403,6 +1428,7 @@ export default function Scene({
       const boardStack = computeBoardStack(field.fillHeightCm, (stepIndex) =>
         resolveBoardStepCandidates(profileScheme, field.legIndex, field.index, stepIndex, leg.modelId, leg.sizeId),
       );
+      boardCountByField[`${field.legIndex}:${field.index}`] = boardStack.boards.length;
       const baseM = field.baseHeightCm / 100;
 
       const startIsMiddle = field.legIndex > 0 && shape.junctions[field.legIndex - 1]?.type !== 'disconnect';
@@ -1526,6 +1552,7 @@ export default function Scene({
         mesh.receiveShadow = true;
         fenceGroup.add(mesh);
         totalBoards++;
+        boardCountByLeg[field.legIndex] = (boardCountByLeg[field.legIndex] ?? 0) + 1;
       }
       includeInLeg(field.legIndex, field.position.x, field.position.z, baseM + field.fillHeightCm / 100);
     }
@@ -1537,6 +1564,8 @@ export default function Scene({
       postCount: totalPosts,
       doublePostCount: totalDoublePosts,
       fieldCount: layout.fields.length,
+      boardCountByLeg,
+      boardCountByField,
     };
 
     if (!isFinite(minX)) {
@@ -1563,6 +1592,13 @@ export default function Scene({
       skyLight.shadow.camera.right = halfWidth;
       skyLight.shadow.camera.top = halfWidth;
       skyLight.shadow.camera.bottom = -halfWidth;
+      // near/far must bracket the ACTUAL light→target distance — the
+      // fixed near=0.5/far=80 set once at creation time never accounted
+      // for the light orbiting out to ~120 units at most hours (see
+      // skyDirectionForHour), which put the fence geometry beyond the far
+      // plane (or right on its unstable edge) most of the time. This is
+      // the root cause diagnosed earlier for the shadow-acne / missing-
+      // shadow symptom.
       const lightDistance = skyLight.position.distanceTo(skyLight.target.position);
       skyLight.shadow.camera.near = Math.max(0.1, lightDistance - halfWidth * 2);
       skyLight.shadow.camera.far = lightDistance + halfWidth * 2;
