@@ -972,3 +972,18 @@
   opacity: 0.4;
   cursor: default;
 }
+
+/* Prevents the browser's native text-selection (blue highlight) from
+   kicking in during fast clicks or long drags on interactive controls —
+   sliders, drag handles, the day/night dial. Inputs/textareas are
+   explicitly re-enabled below so typing still works normally. */
+.app {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+}
+.app input,
+.app textarea {
+  user-select: text;
+  -webkit-user-select: text;
+}

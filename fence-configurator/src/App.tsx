@@ -10,6 +10,7 @@ import Scene, {
   resolveBoardProfile,
   resolveSpacerMultiplier,
   resolveBoardStepCandidates,
+  DAY_NIGHT_KEYFRAMES,
 } from './scene/Scene';
 import type { Shape, Leg, Junction } from './geometry/shape';
 import { fieldCountForLeg } from './geometry/shape';
@@ -23,6 +24,15 @@ const FENCE_COLORS = [
   { name: 'חום אגוז', hex: '#6b4a34' },
   { name: 'לבן', hex: '#e8e6e1' },
   { name: 'ירוק בקבוק', hex: '#3f5a45' },
+];
+
+// Quick-jump presets for the day/night slider — hours feed straight into
+// Scene's DAY_NIGHT_KEYFRAMES sampler, same scale as the slider itself.
+const TIME_OF_DAY_PRESETS: { label: string; hour: number }[] = [
+  { label: 'זריחה', hour: 6.5 },
+  { label: 'צהריים', hour: 12 },
+  { label: 'שקיעה', hour: 17.5 },
+  { label: 'לילה — ירח מלא', hour: 0 },
 ];
 
 const JUNCTION_LABELS: Record<Junction['type'], string> = {
@@ -435,13 +445,119 @@ function HeightSnapSlider({
   );
 }
 
+/**
+ * Circular time-of-day dial — a draggable handle around a full ring,
+ * instead of a linear <input type="range">. Ring colors are pulled
+ * directly from DAY_NIGHT_KEYFRAMES's own sky colors (single source of
+ * truth with Scene.tsx — no duplicated color list to drift out of sync).
+ *
+ * Angle convention: 0° = TOP (12 o'clock) = hour 0, increasing CLOCKWISE
+ * as hour increases — matches CSS conic-gradient's own default direction
+ * (from 0deg, clockwise), so the gradient and the handle math agree
+ * without any extra offset juggling.
+ */
+function CircularTimeSlider({ hours, onChange }: { hours: number; onChange: (hours: number) => void }) {
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const draggingRef = useRef(false);
+
+  // Curated subset of DAY_NIGHT_KEYFRAMES (not all 9) — fewer, sharper
+  // stops for a stark day/night look instead of a smoothed rainbow.
+  // Indices: 0=hour0(night), 2=hour6.5(sunrise), 4=hour12(day), 6=hour17.5(sunset), 8=hour24(night).
+  const night = `#${DAY_NIGHT_KEYFRAMES[0].sky.getHexString()}`;
+  const sunrise = `#${DAY_NIGHT_KEYFRAMES[2].sky.getHexString()}`;
+  const day = `#${DAY_NIGHT_KEYFRAMES[4].sky.getHexString()}`;
+  const sunset = `#${DAY_NIGHT_KEYFRAMES[6].sky.getHexString()}`;
+  const gradient = `conic-gradient(
+    ${night} 0deg, ${night} 82deg,
+    ${sunrise} 96deg,
+    ${day} 112deg, ${day} 248deg,
+    ${sunset} 264deg,
+    ${night} 278deg, ${night} 360deg
+  )`;
+
+  function angleToHours(clientX: number, clientY: number): number {
+    const el = trackRef.current;
+    if (!el) return hours;
+    const rect = el.getBoundingClientRect();
+    const dx = clientX - (rect.left + rect.width / 2);
+    const dy = clientY - (rect.top + rect.height / 2);
+    let angle = Math.atan2(dy, dx) + Math.PI / 2; // 0 at 12 o'clock, clockwise
+    if (angle < 0) angle += Math.PI * 2;
+    return (angle / (Math.PI * 2)) * 24;
+  }
+
+ function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    e.preventDefault();
+    draggingRef.current = true;
+    (e.target as Element).setPointerCapture(e.pointerId);
+    onChange(angleToHours(e.clientX, e.clientY));
+  }
+  function handlePointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (!draggingRef.current) return;
+    onChange(angleToHours(e.clientX, e.clientY));
+  }
+  function handlePointerUp() {
+    draggingRef.current = false;
+  }
+
+  const handleAngle = (hours / 24) * Math.PI * 2 - Math.PI / 2;
+  const HANDLE_RADIUS_PCT = 44;
+  const handleX = 50 + HANDLE_RADIUS_PCT * Math.cos(handleAngle);
+  const handleY = 50 + HANDLE_RADIUS_PCT * Math.sin(handleAngle);
+  const isDaytime = hours >= 6.5 && hours <= 17.5;
+
+  return (
+    <div
+      ref={trackRef}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      style={{
+        position: 'relative',
+        width: 84,
+        height: 84,
+        borderRadius: '50%',
+        background: gradient,
+        cursor: 'grab',
+        touchAction: 'none',
+        userSelect: 'none',
+        WebkitUserSelect: 'none',
+        boxShadow: '0 1px 4px rgba(0,0,0,0.3) inset',
+        margin: '0 auto',
+      }}
+    >
+      <div
+        style={{
+          position: 'absolute',
+          left: `${handleX}%`,
+          top: `${handleY}%`,
+          width: 22,
+          height: 22,
+          borderRadius: '50%',
+          background: '#fff',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 13,
+          transform: 'translate(-50%, -50%)',
+          pointerEvents: 'none',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.4)',
+        }}
+      >
+        {isDaytime ? '☀️' : '🌙'}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [shape, setShape] = useState<Shape>(defaultShape());
   const [colorScheme, setColorScheme] = useState<ColorScheme>(defaultColorScheme());
   const [profileScheme, setProfileScheme] = useState<ProfileScheme>(defaultProfileScheme());
   const [selection, setSelection] = useState<Selection | null>(null);
-  const [pendingBoardColor, setPendingBoardColor] = useState(FENCE_COLORS[0].hex);
-  const [pendingModelId, setPendingModelId] = useState(DEFAULT_MODEL_ID);
+  const [timeOfDayHours, setTimeOfDayHours] = useState(12); // noon by default
+  const [pendingBoardColor, setPendingBoardColor] = useState(FENCE_COLORS[0].hex); const [pendingModelId, setPendingModelId] = useState(DEFAULT_MODEL_ID);
   const [pendingSizeId, setPendingSizeId] = useState(DEFAULT_SIZE_ID);
   const [pendingSpacer, setPendingSpacer] = useState(1);
   const [applyToAllFields, setApplyToAllFields] = useState(false);
@@ -554,11 +670,11 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [history]);
 
-  function handleDragStart(e: React.PointerEvent<HTMLDivElement>) {
+ function handleDragStart(e: React.PointerEvent<HTMLDivElement>) {
+    e.preventDefault(); // stops the browser starting a text-selection drag
     dragStartRef.current = { startY: e.clientY, startHeight: sheetHeight };
     e.currentTarget.setPointerCapture(e.pointerId);
-  }
-  function handleDragMove(e: React.PointerEvent<HTMLDivElement>) {
+  }  function handleDragMove(e: React.PointerEvent<HTMLDivElement>) {
     if (!dragStartRef.current) return;
     // Sheet is anchored to the bottom, so dragging DOWN (positive delta) shrinks it.
     const delta = e.clientY - dragStartRef.current.startY;
@@ -674,26 +790,26 @@ export default function App() {
   // camera change. Clicking a closed leg's header opens it AND flies the
   // camera to frame that whole leg.
   function toggleLeg(legIndex: number) {
-  setExpandedLegIndices((prev) => {
-    const next = new Set(prev);
+    setExpandedLegIndices((prev) => {
+      const next = new Set(prev);
 
-    if (next.has(legIndex)) {
-      next.delete(legIndex);
-    } else {
-      next.add(legIndex);
-    }
+      if (next.has(legIndex)) {
+        next.delete(legIndex);
+      } else {
+        next.add(legIndex);
+      }
 
-    return next;
-  });
+      return next;
+    });
 
-  // Every header click triggers camera focus:
-  // opening AND closing the same leg.
-  legFocusNonceRef.current += 1;
-  setLegCameraFocus({
-    legIndex,
-    nonce: legFocusNonceRef.current,
-  });
-}
+    // Every header click triggers camera focus:
+    // opening AND closing the same leg.
+    legFocusNonceRef.current += 1;
+    setLegCameraFocus({
+      legIndex,
+      nonce: legFocusNonceRef.current,
+    });
+  }
 
   function setPostColor(hex: string) {
     setColorScheme((prev) => ({ ...prev, postColorHex: hex }));
@@ -1042,7 +1158,12 @@ export default function App() {
             onStats={setStats}
             skipNextFocusRef={skipNextFocusRef}
             legCameraFocus={legCameraFocus}
+            timeOfDayHours={timeOfDayHours}
           />
+
+           <div style={{ position: 'absolute', left: 12, bottom: 12, zIndex: 5 }}>
+            <CircularTimeSlider hours={timeOfDayHours} onChange={setTimeOfDayHours} />
+          </div>
           <div className="stats-badge">
             <div>{stats.fps} FPS</div>
             <div>{stats.drawCalls} draw calls</div>

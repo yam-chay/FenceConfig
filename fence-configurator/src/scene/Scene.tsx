@@ -247,6 +247,10 @@ interface SceneProps {
    * request even when re-opening the same leg, since the object would
    * otherwise look unchanged. Null = no pending leg-focus request. */
   legCameraFocus?: { legIndex: number; nonce: number } | null;
+  /** Hour of day, 0–24 (fractional allowed) — drives sun/moon position,
+   * sky color, and ambient/sun/moon light intensity. See
+   * DAY_NIGHT_KEYFRAMES below. */
+  timeOfDayHours: number;
 }
 
 interface FrameTarget {
@@ -275,6 +279,100 @@ const isMobileViewport = () => window.matchMedia('(max-width: 700px)').matches;
 // background renders dull/grey.
 const ALUMINUM_ROUGHNESS = 0.35;
 const ALUMINUM_METALNESS = 0.75;
+// Flat grass ground — sits just below the grid (see groundMesh.position.y
+// below) so the grid lines stay visible on top without z-fighting. Reacts
+// to the day/night ambient/sun/moon lights automatically since it's a lit
+// MeshStandardMaterial, not a flat/unlit color.
+const GRASS_COLOR_HEX = '#5c8a4a';
+/** GridHelper's own material needs transparent:true before this has any effect — see setup below. 1 = fully opaque (current look), lower = grid fades into the grass more. */
+const GRID_OPACITY = 0.4;// Global multipliers on top of every keyframe's own sunIntensity/moonIntensity —
+// tweak these two numbers to brighten/dim the whole day or night cycle at once
+// without editing each keyframe row individually.
+const SUN_BRIGHTNESS_SCALE = 1;
+const MOON_BRIGHTNESS_SCALE = 1;
+// Fixed moonlight tint — the sun's color already shifts per-keyframe
+// (orange at sunrise/sunset, white at noon), but the moon doesn't need
+// that variation, so one constant color is enough for the sun<->moon
+// blend below.
+const MOON_LIGHT_COLOR = new THREE.Color('#aac4ff');// --- Day/night cycle ---
+// Simplified sky model: sun and moon both arc across the SAME forward
+// hemisphere (fixed +Z tilt) rather than true opposite sides of the
+// world. Astronomically a full moon sits opposite the sun, but the
+// camera's own constraints (AZIMUTH_RANGE/POLAR_RANGE above only allow
+// ~180° horizontal and a narrow vertical band) mean anything on the far
+// side would never be reachable by orbiting anyway. The moon's arc is
+// just the sun's arc offset by 12 hours along the same path — "moon
+// rises as sun sets" still falls out of that, without the moon ever
+// landing behind the fence, out of view.
+//
+// NOT verified against the actual render yet — if the sun/moon discs turn
+// out to sit behind the camera instead of in front of it, flip the sign
+// on SKY_ORBIT_DEPTH_Z_M (try -22).
+const SKY_ORBIT_RADIUS_M = 60;
+const SKY_ORBIT_DEPTH_Z_M = 22;
+
+function skyDirectionForHour(hour: number): THREE.Vector3 {
+  const angle = ((hour - 6) / 24) * Math.PI * 2; // 0 at 6:00 (rising), PI/2 at 12:00 (zenith), PI at 18:00 (setting)
+  const elevation = Math.sin(angle);
+  const horizontal = Math.cos(angle);
+  return new THREE.Vector3(horizontal * SKY_ORBIT_RADIUS_M, elevation * SKY_ORBIT_RADIUS_M, SKY_ORBIT_DEPTH_Z_M);
+}
+
+interface DayNightKeyframe {
+  hour: number;
+  sky: THREE.Color;
+  ambient: THREE.Color;
+  ambientIntensity: number;
+  sunColor: THREE.Color;
+  sunIntensity: number;
+  moonIntensity: number;
+  /** Scales scene.environment's contribution (the procedural RoomEnvironment
+   * set up for PBR reflections) — that map is otherwise a FIXED light
+   * source that doesn't dim at night on its own, unlike ambient/sun/moon
+   * above. Kept low at night so metal materials don't stay artificially
+   * bright once the sun/ambient lights have gone down. */
+  envIntensity: number;
+}
+
+// Hand-picked aesthetic values, not measured light readings — tune freely.
+// First and last entries both represent midnight (hour 0 / hour 24) with
+// identical values, so interpolation wraps cleanly across that seam.
+export const DAY_NIGHT_KEYFRAMES: DayNightKeyframe[] = [
+  { hour: 0, sky: new THREE.Color('#050914'), ambient: new THREE.Color('#232a45'), ambientIntensity: 0.22, sunColor: new THREE.Color('#5a6a99'), sunIntensity: 0, moonIntensity: 0.5, envIntensity: 0.1 },
+  { hour: 5, sky: new THREE.Color('#0c1424'), ambient: new THREE.Color('#232a45'), ambientIntensity: 0.24, sunColor: new THREE.Color('#5a6a99'), sunIntensity: 0, moonIntensity: 0.42, envIntensity: 0.12 },
+  { hour: 6.5, sky: new THREE.Color('#ff9a5c'), ambient: new THREE.Color('#6b564d'), ambientIntensity: 0.4, sunColor: new THREE.Color('#ff9a5c'), sunIntensity: 0.55, moonIntensity: 0.05, envIntensity: 0.4 },
+  { hour: 8, sky: new THREE.Color('#bfe0f2'), ambient: new THREE.Color('#d6d9dc'), ambientIntensity: 0.55, sunColor: new THREE.Color('#fff0d6'), sunIntensity: 0.9, moonIntensity: 0, envIntensity: 0.75 },
+  { hour: 12, sky: new THREE.Color('#a9d8f5'), ambient: new THREE.Color('#eef1f4'), ambientIntensity: 0.65, sunColor: new THREE.Color('#ffffff'), sunIntensity: 1.1, moonIntensity: 0, envIntensity: 1 },
+  { hour: 16, sky: new THREE.Color('#bfe0f2'), ambient: new THREE.Color('#d6d9dc'), ambientIntensity: 0.55, sunColor: new THREE.Color('#fff0d6'), sunIntensity: 0.9, moonIntensity: 0, envIntensity: 0.75 },
+  { hour: 17.5, sky: new THREE.Color('#ff8a5a'), ambient: new THREE.Color('#6b564d'), ambientIntensity: 0.4, sunColor: new THREE.Color('#ff7a45'), sunIntensity: 0.55, moonIntensity: 0.05, envIntensity: 0.4 },
+  { hour: 19, sky: new THREE.Color('#0c1424'), ambient: new THREE.Color('#232a45'), ambientIntensity: 0.24, sunColor: new THREE.Color('#5a6a99'), sunIntensity: 0, moonIntensity: 0.42, envIntensity: 0.12 },
+  { hour: 24, sky: new THREE.Color('#050914'), ambient: new THREE.Color('#232a45'), ambientIntensity: 0.22, sunColor: new THREE.Color('#5a6a99'), sunIntensity: 0, moonIntensity: 0.5, envIntensity: 0.1 },
+];
+
+/** Linearly interpolates between the two DAY_NIGHT_KEYFRAMES bracketing `hour` (wraps across 0–24). */
+function sampleDayNight(hour: number) {
+  const h = ((hour % 24) + 24) % 24;
+  let lo = DAY_NIGHT_KEYFRAMES[0];
+  let hi = DAY_NIGHT_KEYFRAMES[DAY_NIGHT_KEYFRAMES.length - 1];
+  for (let i = 0; i < DAY_NIGHT_KEYFRAMES.length - 1; i++) {
+    if (h >= DAY_NIGHT_KEYFRAMES[i].hour && h <= DAY_NIGHT_KEYFRAMES[i + 1].hour) {
+      lo = DAY_NIGHT_KEYFRAMES[i];
+      hi = DAY_NIGHT_KEYFRAMES[i + 1];
+      break;
+    }
+  }
+  const span = hi.hour - lo.hour || 1;
+  const t = (h - lo.hour) / span;
+  return {
+    sky: lo.sky.clone().lerp(hi.sky, t),
+    ambientColor: lo.ambient.clone().lerp(hi.ambient, t),
+    ambientIntensity: THREE.MathUtils.lerp(lo.ambientIntensity, hi.ambientIntensity, t),
+    sunColor: lo.sunColor.clone().lerp(hi.sunColor, t),
+   sunIntensity: THREE.MathUtils.lerp(lo.sunIntensity, hi.sunIntensity, t) * SUN_BRIGHTNESS_SCALE,
+    moonIntensity: THREE.MathUtils.lerp(lo.moonIntensity, hi.moonIntensity, t) * MOON_BRIGHTNESS_SCALE,
+    envIntensity: THREE.MathUtils.lerp(lo.envIntensity, hi.envIntensity, t),
+  };
+}
 
 /** Builds one merged, constructive post geometry — solid core inset by GROOVE_DEPTH_CM on every side, plus per-face solid wall panels (inactive faces) or paired jambs flanking an open channel (active faces, from spec.grooves). All pieces are merged into ONE BufferGeometry so a post still costs exactly one draw call, same as the old single-box version — grooves shouldn't regress the validated mobile draw-call numbers. */
 function buildPostGeometry(spec: PostSpec): THREE.BufferGeometry {
@@ -400,13 +498,23 @@ export default function Scene({
   onStats,
   skipNextFocusRef,
   legCameraFocus,
+  timeOfDayHours,
 }: SceneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
-  const fenceGroupRef = useRef<THREE.Group | null>(null);
+ const fenceGroupRef = useRef<THREE.Group | null>(null);
+  // Day/night cycle refs — created once in the setup effect below, retuned
+  // by the separate timeOfDayHours effect without rerunning scene setup.
+  const ambientLightRef = useRef<THREE.AmbientLight | null>(null);
+  const sunLightRef = useRef<THREE.DirectionalLight | null>(null); // now the MERGED sun+moon light
+  const sunMeshRef = useRef<THREE.Mesh | null>(null);
+  const moonMeshRef = useRef<THREE.Mesh | null>(null);
+  // Current desired envMapIntensity for every PBR (MeshStandardMaterial)
+  // object in the scene, kept in sync with the day/night cycle below.
+  const envIntensityRef = useRef(1);
   const onStatsRef = useRef(onStats);
   onStatsRef.current = onStats;
   const onSelectRef = useRef(onSelect);
@@ -626,16 +734,62 @@ export default function Scene({
       },
     );
 
-    flyTo(shapeBoundsRef.current, FULL_SHAPE_PADDING, { instant: true });
+   flyTo(shapeBoundsRef.current, FULL_SHAPE_PADDING, { instant: true });
 
+    // Day/night cycle: ambient/sun/moon are stored in refs (not local
+    // consts) so the separate timeOfDayHours effect below can retune them
+    // without rerunning this whole one-time setup. moon starts at
+    // intensity 0 — the timeOfDayHours effect sets its real value on the
+    // very next commit, before any frame renders with it wrong.
+       // ONE directional light for both sun and moon — its color/position/
+    // intensity morph continuously between "sunny" and "moonlit" in the
+    // day/night effect below, rather than two separate light objects.
+    // sunMesh/moonMesh (below) stay separate — they're unlit visual discs
+    // marking where the light appears to come from, not light sources
+    // themselves.
     const ambient = new THREE.AmbientLight(0xffffff, 0.6);
-    const sun = new THREE.DirectionalLight(0xffffff, 0.8);
-    sun.position.set(5, 8, 4);
-    scene.add(ambient, sun);
+    const sky = new THREE.DirectionalLight(0xffffff, 0.8);
+    ambientLightRef.current = ambient;
+    sunLightRef.current = sky; // reused ref name — this IS now the merged sky light
+    scene.add(ambient, sky);
 
-    const ground = new THREE.GridHelper(200, 200, 0xc9d2d8, 0xdfe5e9);
+    // Small unlit discs (MeshBasicMaterial — unaffected by scene
+    // lighting, since these represent the light SOURCES, not lit
+    // objects) marking the sun/moon's position in the sky. Always full
+    // moon per skyDirectionForHour's own comment — no lunar-phase model.
+    const sunMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(2.2, 16, 12),
+      new THREE.MeshBasicMaterial({ color: 0xfff3d6 }),
+    );
+    const moonMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(1.6, 16, 12),
+      new THREE.MeshBasicMaterial({ color: 0xe4e9f5 }),
+    );
+    sunMeshRef.current = sunMesh;
+    moonMeshRef.current = moonMesh;
+    scene.add(sunMesh, moonMesh);
+
+      const ground = new THREE.GridHelper(200, 200, 0xc9d2d8, 0xdfe5e9);
+    // opacity has no visible effect until transparent:true is set — off by
+    // default on GridHelper's material.
+    const gridMat = ground.material as THREE.Material;
+    gridMat.transparent = true;
+    gridMat.opacity = GRID_OPACITY;
     scene.add(ground);
-
+    // Grass ground plane, same footprint as the grid above it. Offset
+    // slightly below y=0 so the grid's own lines render on top instead of
+    // fighting with the grass surface for the same depth. PlaneGeometry is
+    // built facing +Z by default, hence the -90° X rotation to lay it flat.
+    const groundMeshGeo = new THREE.PlaneGeometry(200, 200);
+    const groundMeshMat = new THREE.MeshStandardMaterial({
+      color: GRASS_COLOR_HEX,
+      roughness: 0.95,
+      metalness: 0,
+    });
+    const groundMesh = new THREE.Mesh(groundMeshGeo, groundMeshMat);
+    groundMesh.rotation.x = -Math.PI / 2;
+    groundMesh.position.y = -0.01;
+    scene.add(groundMesh);
     const fenceGroup = new THREE.Group();
     fenceGroupRef.current = fenceGroup;
     scene.add(fenceGroup);
@@ -970,9 +1124,72 @@ export default function Scene({
       controls.dispose();
       renderer.dispose();
       scene.environment?.dispose();
+      sunMesh.geometry.dispose();
+      (sunMesh.material as THREE.Material).dispose();
+      moonMesh.geometry.dispose();
+      (moonMesh.material as THREE.Material).dispose();
+      groundMeshGeo.dispose();
+      groundMeshMat.dispose();
+      gridMat.dispose();
       container.removeChild(renderer.domElement);
     };
   }, []);
+
+  // Day/night cycle — retunes ambient/sun/moon lights, the sky background
+  // color, and the sun/moon marker meshes whenever the person moves the
+  // time-of-day control. Pure lighting/background: never touches
+  // fenceGroup and never triggers any camera movement.
+  useEffect(() => {
+    const scene = sceneRef.current;
+    const ambient = ambientLightRef.current;
+    const sky = sunLightRef.current; // merged sun+moon light — see setup effect
+    const sunMesh = sunMeshRef.current;
+    const moonMesh = moonMeshRef.current;
+    if (!scene || !ambient || !sky || !sunMesh || !moonMesh) return;
+
+    const sample = sampleDayNight(timeOfDayHours);
+
+    scene.background = sample.sky;
+    ambient.color.copy(sample.ambientColor);
+    ambient.intensity = sample.ambientIntensity;
+
+    const sunDir = skyDirectionForHour(timeOfDayHours);
+    const moonDir = skyDirectionForHour(timeOfDayHours + 12);
+    const sunIntensity = sample.sunIntensity * SUN_BRIGHTNESS_SCALE;
+    const moonIntensity = sample.moonIntensity * MOON_BRIGHTNESS_SCALE;
+
+    // Blend weight toward "moon" — sun and moon intensities are near-
+    // complementary (one is close to 0 whenever the other is significant),
+    // so this stays near 0 all day and near 1 all night, with a brief
+    // sweep through the middle only during the low-intensity dawn/dusk
+    // crossover where any position artifact is barely visible.
+    const totalIntensity = sunIntensity + moonIntensity;
+    const moonWeight = totalIntensity > 0.0001 ? moonIntensity / totalIntensity : 0;
+
+    const mergedDir = sunDir.clone().lerp(moonDir, moonWeight);
+    const mergedColor = sample.sunColor.clone().lerp(MOON_LIGHT_COLOR, moonWeight);
+
+    sky.position.copy(mergedDir);
+    sky.color.copy(mergedColor);
+    sky.intensity = totalIntensity;
+
+    sunMesh.position.copy(sunDir);
+    sunMesh.visible = sunIntensity > 0.01;
+    moonMesh.position.copy(moonDir);
+    moonMesh.visible = moonIntensity > 0.01;
+
+    // scene.environment is otherwise a FIXED light source — it does not
+    // dim on its own just because ambient/sun/moon went down. Retune
+    // every existing MeshStandardMaterial in the scene directly
+    // (sunMesh/moonMesh use MeshBasicMaterial — unlit by design — so
+    // they're untouched by this).
+   // Single global scalar — scales scene.environment's contribution to
+    // EVERY material in the scene at once. Requires three.js r162+; if
+    // your installed version predates that, this silently does nothing
+    // (no error) and materials stay at full brightness at night — if that
+    // happens, revert to per-material envMapIntensity + scene.traverse.
+    scene.environmentIntensity = sample.envIntensity;
+  }, [timeOfDayHours]);
 
   // Rebuild the procedural geometry whenever the live shape/colors/selection
   // change. Only resets the in-progress fly/controls when SHAPE actually
@@ -1002,6 +1219,7 @@ export default function Scene({
       color: colorScheme.postColorHex,
       roughness: ALUMINUM_ROUGHNESS,
       metalness: ALUMINUM_METALNESS,
+      envMapIntensity: envIntensityRef.current,
     });    // Separate material JUST for the merged post-box geometry (the one
     // carrying the groove). vertexColors:true lives ONLY here — the
     // rosette/cap meshes below keep using the plain postMat, since their
@@ -1014,6 +1232,7 @@ export default function Scene({
       vertexColors: true,
       roughness: ALUMINUM_ROUGHNESS,
       metalness: ALUMINUM_METALNESS,
+      envMapIntensity: envIntensityRef.current,
     });
     function withHighlight(mat: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
       const clone = mat.clone();
@@ -1031,13 +1250,14 @@ export default function Scene({
     // boards in the middle correctly stay on baseBoardColorHex instead of
     // being swallowed by whichever split was set second.
     const boardMatCache = new Map<string, THREE.MeshStandardMaterial>();
-   function boardMaterial(hex: string): THREE.MeshStandardMaterial {
+  function boardMaterial(hex: string): THREE.MeshStandardMaterial {
       let mat = boardMatCache.get(hex);
       if (!mat) {
         mat = new THREE.MeshStandardMaterial({
           color: hex,
           roughness: ALUMINUM_ROUGHNESS,
           metalness: ALUMINUM_METALNESS,
+          envMapIntensity: envIntensityRef.current,
         });
         boardMatCache.set(hex, mat);
       }
@@ -1052,8 +1272,7 @@ export default function Scene({
     const accessoryWidthM = postThicknessM * POST_ACCESSORY_WIDTH_MULTIPLIER;
     // Placeholder color for the existing wall/base the fence sits on —
     // purely visual reference until the client gives real cladding options.
-    const wallMat = new THREE.MeshStandardMaterial({ color: '#9a9186' });
-    // A true end's wall overhang (WALL_END_OVERHANG_CM) is Yam's own visual
+      const wallMat = new THREE.MeshStandardMaterial({ color: '#9a9186', envMapIntensity: envIntensityRef.current });    // A true end's wall overhang (WALL_END_OVERHANG_CM) is Yam's own visual
     // call, but it can never end SHORTER than the rosette sitting on top of
     // it — the rosette is already wider than the post itself
     // (accessoryWidthM), overhanging the post's own face by
@@ -1074,8 +1293,12 @@ export default function Scene({
     // following colorScheme.postColorHex the way the post/rosette do
     // today. roughness/metalness are a rough "matte plastic" starting
     // point, not measured values.
-    const capMat = new THREE.MeshStandardMaterial({ color: CAP_COLOR_HEX, roughness: 0.65, metalness: 0.05 });
-    const capDisplayMat = selection?.kind === 'post' ? withHighlight(capMat) : capMat;
+    const capMat = new THREE.MeshStandardMaterial({
+      color: CAP_COLOR_HEX,
+      roughness: 0.65,
+      metalness: 0.05,
+      envMapIntensity: envIntensityRef.current,
+    });    const capDisplayMat = selection?.kind === 'post' ? withHighlight(capMat) : capMat;
 
     let totalBoards = 0;
     let totalPosts = 0;
