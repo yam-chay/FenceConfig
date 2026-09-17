@@ -321,7 +321,7 @@ export default function App() {
                   <span className="carousel-label">רווח מתחת לשלב הזה — לחיצה קובעת מיד רק אותו</span>
                   <div className="carousel">
                     {[
-                      { label: 'חצי', value: 0.5 },
+                      { label: 'אפס', value: 0},
                       { label: 'רגיל', value: 1 },
                       { label: 'כפול', value: 2 },
                     ].map((opt) => (

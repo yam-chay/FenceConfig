@@ -17,9 +17,27 @@ import {
 } from '../geometry/constants';
 import type { Selection, ColorScheme, ProfileScheme } from './types';
 import { resolveBoardColorHex, resolveBoardStepCandidates } from './resolvers';
+import { VIEW_DIRECTION, CAMERA_FORWARD_AZIMUTH_RAD } from './constants';
+import { drawSkyGradient, skyDirectionForHour, sampleDayNight, DAY_NIGHT_KEYFRAMES } from './environment/dayNightCycle';
+import {
+  CLOUD_COUNT,
+  CLOUD_ORBIT_RADIUS_M,
+  CLOUD_RADIUS_JITTER_M,
+  CLOUD_BASE_ELEVATION_M,
+  CLOUD_ELEVATION_JITTER_M,
+  CLOUD_AZIMUTH_SPAN_DEG,
+  CLOUD_DRIFT_DEG_PER_SEC,
+  CLOUD_SHADOW_Y_OFFSET_M,
+  CLOUD_SCALE_MIN,
+  CLOUD_SCALE_MAX,
+  cloudPositionForAzimuth,
+  drawCloudTexture,
+} from './environment/clouds';
 
 export type { Selection, ColorScheme, ProfileScheme, BoardColorRule, BoardProfileRule, SpacerRule } from './types';
 export { resolveBoardColorHex, resolveBoardProfile, resolveSpacerMultiplier, resolveBoardStepCandidates } from './resolvers';
+export { DAY_NIGHT_KEYFRAMES } from './environment/dayNightCycle';
+
 interface SceneProps {
   shape: Shape;
   colorScheme: ColorScheme;
@@ -69,7 +87,6 @@ interface CloudSprite {
   driftDegPerSec: number;
 }
 
-const VIEW_DIRECTION = new THREE.Vector3(2, 4.2, 11).normalize();
 const DEFAULT_POLAR = Math.acos(VIEW_DIRECTION.y);
 const DEFAULT_AZIMUTH = Math.atan2(VIEW_DIRECTION.x, VIEW_DIRECTION.z);
 const AZIMUTH_RANGE = Math.PI / 2; // full horizontal rotation — polar stays locked below
@@ -109,200 +126,6 @@ const SHADOW_MAP_SIZE = 2048;
 // margin spreads the same SHADOW_MAP_SIZE texel budget thinner, directly
 // costing the fine board-gap detail this frustum needs to resolve.
 const SHADOW_FRUSTUM_MARGIN_M = 0.5;
-
-// --- Cloud sprites ---
-const CLOUD_COUNT = 30;
-// Deliberately SMALLER than SKY_ORBIT_RADIUS_M (60) — clouds should read
-// as closer/lower than the far sun/moon arc, not sit on the same shell.
-// Each cloud jitters +/- CLOUD_RADIUS_JITTER_M off this base so they
-// don't all sit on one perfect circle (flat/artificial-looking) — some
-// nearer, some farther, for actual depth variation.
-const CLOUD_ORBIT_RADIUS_M = 50;
-const CLOUD_RADIUS_JITTER_M = 15;
-const CLOUD_BASE_ELEVATION_M = 15;
-const CLOUD_ELEVATION_JITTER_M = 10;
-// Total azimuth width clouds are scattered across, centered on
-// CAMERA_FORWARD_AZIMUTH_RAD — each cloud gets a fully random azimuth
-// within this span (not an even index-based step), which is what
-// actually spreads them apart instead of clustering them together.
-const CLOUD_AZIMUTH_SPAN_DEG = 200;// Slow drift — a full 360° loop takes (360 / this) seconds, ≈12 minutes
-// at this value. Purely time-driven (performance.now()), NOT tied to
-// timeOfDayHours — only cloud COLOR is tied to the hour, not position.
-const CLOUD_DRIFT_DEG_PER_SEC = 0.3;
-const CLOUD_SHADOW_Y_OFFSET_M = 1.2;
-const CLOUD_SCALE_MIN = 8;
-const CLOUD_SCALE_MAX = 20;// tweak these two numbers to brighten/dim the whole day or night cycle at once
-// without editing each keyframe row individually.
-const SUN_BRIGHTNESS_SCALE = 3;
-const MOON_BRIGHTNESS_SCALE = 1;
-// MOON_LIGHT_COLOR removed — no longer needed. Every keyframe now carries
-// its own "core" color directly (Sun/Sunset/Sunrise Core by day, Moon
-// Core at night), so ordinary keyframe-to-keyframe interpolation already
-// produces the sun<->moon color transition on its own.
-
-/**
- * Redraws the 3-stop (top/mid/horizon) sky gradient onto the given canvas
- * in place, and flags its CanvasTexture for re-upload. A flat 2D texture
- * assigned to scene.background renders as a fixed backdrop quad (not
- * equirectangular-mapped), which is fine here since the camera's own
- * azimuth/polar range is already locked to a narrow band (see
- * AZIMUTH_RANGE/POLAR_RANGE above) — the sky never needs to wrap around
- * behind the viewer.
- */
-function drawSkyGradient(
-  canvas: HTMLCanvasElement,
-  texture: THREE.CanvasTexture,
-  top: THREE.Color,
-  mid: THREE.Color,
-  horizon: THREE.Color,
-) {
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-  const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-  gradient.addColorStop(0, `#${top.getHexString()}`);
-  gradient.addColorStop(0.55, `#${mid.getHexString()}`);
-  gradient.addColorStop(1, `#${horizon.getHexString()}`);
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  texture.needsUpdate = true;
-}// --- Day/night cycle ---
-// Simplified sky model: sun and moon both arc across the SAME forward
-// hemisphere (fixed +Z tilt) rather than true opposite sides of the
-// world. Astronomically a full moon sits opposite the sun, but the
-// camera's own constraints (AZIMUTH_RANGE/POLAR_RANGE above only allow
-// ~180° horizontal and a narrow vertical band) mean anything on the far
-// side would never be reachable by orbiting anyway. The moon's arc is
-// just the sun's arc offset by 12 hours along the same path — "moon
-// rises as sun sets" still falls out of that, without the moon ever
-// landing behind the fence, out of view.
-//
-// NOT verified against the actual render yet — if the sun/moon discs turn
-// out to sit behind the camera instead of in front of it, flip the sign
-// on SKY_ORBIT_DEPTH_Z_M (try -22).
-const SKY_ORBIT_RADIUS_M = 120;
-const SKY_ORBIT_DEPTH_Z_M = 44;
-
-// Reorients the WHOLE arc as one rigid rotation, so sunset (hour 18)
-// lands near where the camera is actually looking, offset to one side —
-// rather than the raw world X axis, which had no relationship to the
-// camera's framing at all. Every other hour's direction just follows
-// along automatically, since it's the same arc shape, only rotated.
-//
-// "Where the camera looks" = the ground-plane azimuth of -VIEW_DIRECTION
-// (the camera SITS along +VIEW_DIRECTION from the target, so it looks
-// back along the negative of it) — same atan2(x,z) convention
-// DEFAULT_AZIMUTH above already uses, so this stays in sync automatically
-// if VIEW_DIRECTION is ever retuned.
-const CAMERA_FORWARD_AZIMUTH_RAD = Math.atan2(-VIEW_DIRECTION.x, -VIEW_DIRECTION.z);
-// "Offset to the right" — sign is an unverified guess; flip to negative
-// if sunset ends up on the LEFT of camera-forward instead once rendered.
-const SKY_ORBIT_AZIMUTH_OFFSET_DEG = -50;
-const SKY_ORBIT_WEST_AZIMUTH_RAD =
-  CAMERA_FORWARD_AZIMUTH_RAD + THREE.MathUtils.degToRad(SKY_ORBIT_AZIMUTH_OFFSET_DEG);
-// The OLD (unrotated) arc's own sunset azimuth, hour 18 — solved here
-// from SKY_ORBIT_RADIUS_M/SKY_ORBIT_DEPTH_Z_M rather than hardcoded, so
-// the rotation below stays correct even if those two change later.
-const SKY_ORBIT_UNROTATED_SUNSET_AZIMUTH_RAD = Math.atan2(-SKY_ORBIT_RADIUS_M, SKY_ORBIT_DEPTH_Z_M);
-const SKY_ORBIT_ROTATION_RAD = SKY_ORBIT_WEST_AZIMUTH_RAD - SKY_ORBIT_UNROTATED_SUNSET_AZIMUTH_RAD;
-
-function skyDirectionForHour(hour: number): THREE.Vector3 {
-  const angle = ((hour - 6) / 24) * Math.PI * 2; // 0 at 6:00 (rising), PI/2 at 12:00 (zenith), PI at 18:00 (setting)
-  const elevation = Math.sin(angle);
-  const horizontal = Math.cos(angle);
-  const x0 = horizontal * SKY_ORBIT_RADIUS_M;
-  const z0 = SKY_ORBIT_DEPTH_Z_M;
-  // Rotates the (x0,z0) ground-plane pair by SKY_ORBIT_ROTATION_RAD, in
-  // the same atan2(x,z) convention used above — adds that angle to
-  // whatever azimuth (x0,z0) already had, for every hour alike.
-  const cosR = Math.cos(SKY_ORBIT_ROTATION_RAD);
-  const sinR = Math.sin(SKY_ORBIT_ROTATION_RAD);
-  const x = x0 * cosR + z0 * sinR;
-  const z = z0 * cosR - x0 * sinR;
-  return new THREE.Vector3(x, elevation * SKY_ORBIT_RADIUS_M, z);
-}
-
-interface DayNightKeyframe {
-  hour: number;
-  /** Sky gradient, top to horizon — drawn as a 3-stop canvas gradient (see drawSkyGradient) rather than a flat scene.background color. */
-  skyTop: THREE.Color;
-  skyMid: THREE.Color;
-  skyHorizon: THREE.Color;
-  /** "Ambient Shadow" tint from the palette — drives the AmbientLight's color/intensity. */
-  ambient: THREE.Color;
-  ambientIntensity: number;
-  /** "Core" color of whichever body is dominant at this hour — Sun/Sunset/Sunrise Core by day, Moon Core at night. Drives BOTH the merged directional light's color and the visible sun/moon disc's own color. */
-  sunColor: THREE.Color;
-  /** "Glow" color of whichever body is dominant — drives the soft halo sprite behind the sun/moon disc. */
-  glowColor: THREE.Color;
-  sunIntensity: number;
-  moonIntensity: number;
-  /** "Ground Light"/"Ground Shadow" tint — the grass material's own base color at this hour. No real shadow mapping in this scene, so this single color stands in for that whole layer. */
-  groundTint: THREE.Color;
-  /** Scales scene.environment's contribution (the procedural RoomEnvironment
-   * set up for PBR reflections) — that map is otherwise a FIXED light
-   * source that doesn't dim at night on its own, unlike ambient/sun/moon
-   * above. Kept low at night so metal materials don't stay artificially
-   * bright once the sun/ambient lights have gone down. */
-  envIntensity: number;
-  /** "Cloud Bright"/"Cloud Shadow" tokens from the palette — tint the two
-   * layers of every cloud sprite (see CloudSprite/CLOUD_* above). */
-  cloudBright: THREE.Color;
-  cloudShadow: THREE.Color;
-}
-
-// Hand-picked aesthetic values, not measured light readings — tune freely.
-// First and last entries both represent midnight (hour 0 / hour 24) with
-// identical values, so interpolation wraps cleanly across that seam.
-// Values sourced from the "Unified Environment Palette" (Yam, 2026-09-17).
-// Each hour maps to one of the 4 named categories (Night / Sunrise / Day /
-// Sunset); hours 8/12/16 all use Day tokens — the palette doesn't
-// distinguish morning/noon/afternoon separately, so the brightness
-// difference between them still comes from sunIntensity/ambientIntensity,
-// not a different color set. Noon's sunColor is the palette's own Sun
-// Core (#FFF4C2) rather than pure white — a deliberate change from the
-// previous #ffffff, to stay faithful to the given palette.
-export const DAY_NIGHT_KEYFRAMES: DayNightKeyframe[] = [
-  { hour: 0, skyTop: new THREE.Color('#080F2B'), skyMid: new THREE.Color('#1D3263'), skyHorizon: new THREE.Color('#40567D'), ambient: new THREE.Color('#0C172A'), ambientIntensity: 0.22, sunColor: new THREE.Color('#FFF1C7'), glowColor: new THREE.Color('#AFC7E8'), sunIntensity: 0, moonIntensity: 0.5, groundTint: new THREE.Color('#354B48'), envIntensity: 0.1, cloudBright: new THREE.Color('#526487'), cloudShadow: new THREE.Color('#202B4C') },
-  { hour: 5, skyTop: new THREE.Color('#080F2B'), skyMid: new THREE.Color('#1D3263'), skyHorizon: new THREE.Color('#40567D'), ambient: new THREE.Color('#0C172A'), ambientIntensity: 0.24, sunColor: new THREE.Color('#FFF1C7'), glowColor: new THREE.Color('#AFC7E8'), sunIntensity: 0, moonIntensity: 0.42, groundTint: new THREE.Color('#354B48'), envIntensity: 0.12, cloudBright: new THREE.Color('#526487'), cloudShadow: new THREE.Color('#202B4C') },
-  { hour: 6.5, skyTop: new THREE.Color('#283B70'), skyMid: new THREE.Color('#C18BA4'), skyHorizon: new THREE.Color('#F6B18C'), ambient: new THREE.Color('#414D67'), ambientIntensity: 0.4, sunColor: new THREE.Color('#FFF0B5'), glowColor: new THREE.Color('#F7C17F'), sunIntensity: 0.55, moonIntensity: 0.05, groundTint: new THREE.Color('#9E9F7B'), envIntensity: 0.4, cloudBright: new THREE.Color('#FFD0B5'), cloudShadow: new THREE.Color('#8B7192') },
-  { hour: 8, skyTop: new THREE.Color('#3B82C4'), skyMid: new THREE.Color('#73B9E6'), skyHorizon: new THREE.Color('#C6E6F5'), ambient: new THREE.Color('#526779'), ambientIntensity: 0.55, sunColor: new THREE.Color('#FFF4C2'), glowColor: new THREE.Color('#FFE6A3'), sunIntensity: 0.9, moonIntensity: 0, groundTint: new THREE.Color('#5c8a4a'), envIntensity: 0.75, cloudBright: new THREE.Color('#FFFFFF'), cloudShadow: new THREE.Color('#D4E3EB') },
-  { hour: 12, skyTop: new THREE.Color('#3B82C4'), skyMid: new THREE.Color('#73B9E6'), skyHorizon: new THREE.Color('#C6E6F5'), ambient: new THREE.Color('#526779'), ambientIntensity: 0.65, sunColor: new THREE.Color('#FFF4C2'), glowColor: new THREE.Color('#FFE6A3'), sunIntensity: 1.1, moonIntensity: 0, groundTint: new THREE.Color('#5c8a4a'), envIntensity: 1, cloudBright: new THREE.Color('#FFFFFF'), cloudShadow: new THREE.Color('#D4E3EB') },
-  { hour: 16, skyTop: new THREE.Color('#3B82C4'), skyMid: new THREE.Color('#73B9E6'), skyHorizon: new THREE.Color('#C6E6F5'), ambient: new THREE.Color('#526779'), ambientIntensity: 0.55, sunColor: new THREE.Color('#FFF4C2'), glowColor: new THREE.Color('#FFE6A3'), sunIntensity: 0.9, moonIntensity: 0, groundTint: new THREE.Color('#5c8a4a'), envIntensity: 0.75, cloudBright: new THREE.Color('#FFFFFF'), cloudShadow: new THREE.Color('#D4E3EB') },
-  { hour: 17.5, skyTop: new THREE.Color('#343B78'), skyMid: new THREE.Color('#B96F91'), skyHorizon: new THREE.Color('#F3A16F'), ambient: new THREE.Color('#3E405E'), ambientIntensity: 0.4, sunColor: new THREE.Color('#FFD18A'), glowColor: new THREE.Color('#F47D55'), sunIntensity: 0.55, moonIntensity: 0.05, groundTint: new THREE.Color('#92785F'), envIntensity: 0.4, cloudBright: new THREE.Color('#F6B5A0'), cloudShadow: new THREE.Color('#735675') },
-  { hour: 19, skyTop: new THREE.Color('#080F2B'), skyMid: new THREE.Color('#1D3263'), skyHorizon: new THREE.Color('#40567D'), ambient: new THREE.Color('#0C172A'), ambientIntensity: 0.24, sunColor: new THREE.Color('#FFF1C7'), glowColor: new THREE.Color('#AFC7E8'), sunIntensity: 0, moonIntensity: 0.42, groundTint: new THREE.Color('#354B48'), envIntensity: 0.12, cloudBright: new THREE.Color('#526487'), cloudShadow: new THREE.Color('#202B4C') },
-  { hour: 24, skyTop: new THREE.Color('#080F2B'), skyMid: new THREE.Color('#1D3263'), skyHorizon: new THREE.Color('#40567D'), ambient: new THREE.Color('#0C172A'), ambientIntensity: 0.22, sunColor: new THREE.Color('#FFF1C7'), glowColor: new THREE.Color('#AFC7E8'), sunIntensity: 0, moonIntensity: 0.5, groundTint: new THREE.Color('#354B48'), envIntensity: 0.1, cloudBright: new THREE.Color('#526487'), cloudShadow: new THREE.Color('#202B4C') },
-];
-
-/** Linearly interpolates between the two DAY_NIGHT_KEYFRAMES bracketing `hour` (wraps across 0–24). */
-function sampleDayNight(hour: number) {
-  const h = ((hour % 24) + 24) % 24;
-  let lo = DAY_NIGHT_KEYFRAMES[0];
-  let hi = DAY_NIGHT_KEYFRAMES[DAY_NIGHT_KEYFRAMES.length - 1];
-  for (let i = 0; i < DAY_NIGHT_KEYFRAMES.length - 1; i++) {
-    if (h >= DAY_NIGHT_KEYFRAMES[i].hour && h <= DAY_NIGHT_KEYFRAMES[i + 1].hour) {
-      lo = DAY_NIGHT_KEYFRAMES[i];
-      hi = DAY_NIGHT_KEYFRAMES[i + 1];
-      break;
-    }
-  }
-  const span = hi.hour - lo.hour || 1;
-  const t = (h - lo.hour) / span;
-  return {
-    skyTop: lo.skyTop.clone().lerp(hi.skyTop, t),
-    skyMid: lo.skyMid.clone().lerp(hi.skyMid, t),
-    skyHorizon: lo.skyHorizon.clone().lerp(hi.skyHorizon, t),
-    ambientColor: lo.ambient.clone().lerp(hi.ambient, t),
-    ambientIntensity: THREE.MathUtils.lerp(lo.ambientIntensity, hi.ambientIntensity, t),
-    sunColor: lo.sunColor.clone().lerp(hi.sunColor, t),
-    glowColor: lo.glowColor.clone().lerp(hi.glowColor, t),
-    sunIntensity: THREE.MathUtils.lerp(lo.sunIntensity, hi.sunIntensity, t) * SUN_BRIGHTNESS_SCALE,
-    moonIntensity: THREE.MathUtils.lerp(lo.moonIntensity, hi.moonIntensity, t) * MOON_BRIGHTNESS_SCALE,
-   groundTint: lo.groundTint.clone().lerp(hi.groundTint, t),
-    envIntensity: THREE.MathUtils.lerp(lo.envIntensity, hi.envIntensity, t),
-    cloudBright: lo.cloudBright.clone().lerp(hi.cloudBright, t),
-    cloudShadow: lo.cloudShadow.clone().lerp(hi.cloudShadow, t),
-  };
-}
 
 /** Builds one merged, constructive post geometry — solid core inset by GROOVE_DEPTH_CM on every side, plus per-face solid wall panels (inactive faces) or paired jambs flanking an open channel (active faces, from spec.grooves). All pieces are merged into ONE BufferGeometry so a post still costs exactly one draw call, same as the old single-box version — grooves shouldn't regress the validated mobile draw-call numbers. */
 function buildPostGeometry(spec: PostSpec): THREE.BufferGeometry {
@@ -381,43 +204,6 @@ function buildPostGeometry(spec: PostSpec): THREE.BufferGeometry {
 
 function easeInOutQuad(t: number) {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-}
-
-/** Places a point on a circle of radius `radiusM` at world height
- * `elevationM`, at azimuth `azimuthRad` — same atan2(x,z) convention as
- * CAMERA_FORWARD_AZIMUTH_RAD/skyDirectionForHour above (0 = along +Z,
- * increasing toward +X). Drives cloud drift, independent of
- * timeOfDayHours — driven purely by elapsed real time in the render
- * loop, not the hour slider. */
-function cloudPositionForAzimuth(azimuthRad: number, elevationM: number, radiusM: number): THREE.Vector3 {
-  return new THREE.Vector3(Math.sin(azimuthRad) * radiusM, elevationM, Math.cos(azimuthRad) * radiusM);
-}
-
-/** Draws one shared, blotchy soft-alpha cloud silhouette onto `canvas` —
- * several overlapping soft circles at fixed offsets, alpha compounding
- * naturally via source-over blending where they overlap, giving an
- * irregular puffy edge instead of a perfect circle. Pure white — actual
- * per-cloud tinting happens via each Sprite's own material.color (see the
- * day/night effect), not baked into this shared texture. */
-function drawCloudTexture(canvas: HTMLCanvasElement) {
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-  const w = canvas.width;
-  const h = canvas.height;
-  const blobs: [number, number, number][] = [
-    [w * 0.5, h * 0.55, w * 0.32],
-    [w * 0.28, h * 0.6, w * 0.22],
-    [w * 0.72, h * 0.6, w * 0.24],
-    [w * 0.4, h * 0.4, w * 0.2],
-    [w * 0.62, h * 0.42, w * 0.18],
-  ];
-  for (const [cx, cy, r] of blobs) {
-    const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-    gradient.addColorStop(0, 'rgba(255,255,255,0.9)');
-    gradient.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, w, h);
-  }
 }
 
 /** Which leg indices changed between two shapes, and whether this kind of change is allowed to reset the viewing angle back to default. Null means nothing in legs/junctions differs (e.g. only color changed). */
@@ -1309,6 +1095,12 @@ export default function Scene({
     sky.color.copy(sample.sunColor);
     sky.intensity = totalIntensity;
 
+    const shadowHalfWidth = Math.max(shapeBoundsRef.current.radius, 1) + SHADOW_FRUSTUM_MARGIN_M;
+    const lightDistance = sky.position.distanceTo(sky.target.position);
+    sky.shadow.camera.near = Math.max(0.1, lightDistance - shadowHalfWidth * 2);
+    sky.shadow.camera.far = lightDistance + shadowHalfWidth * 2;
+    sky.shadow.camera.updateProjectionMatrix();
+
     sunMesh.position.copy(sunDir);
     (sunMesh.material as THREE.MeshBasicMaterial).color.copy(sample.sunColor);
     sunMesh.visible = sunIntensity > 0.01;
@@ -1763,25 +1555,19 @@ export default function Scene({
     // wildly (one short leg vs. many long ones), and a frustum sized for
     // the worst case would waste shadow-map resolution on short fences.
     const skyLight = sunLightRef.current;
-if (skyLight) {
-  const m = SHADOW_FRUSTUM_MARGIN_M;
-  const halfWidth = Math.max(fullBounds.radius, 1) + m;
-  skyLight.target.position.set(fullBounds.centerX, fullBounds.centerY, fullBounds.centerZ);
-  skyLight.shadow.camera.left = -halfWidth;
-  skyLight.shadow.camera.right = halfWidth;
-  skyLight.shadow.camera.top = halfWidth;
-  skyLight.shadow.camera.bottom = -halfWidth;
-
-  // NEW: near/far must bracket the ACTUAL light→target distance, which
-  // varies with the hour (mergedDir's magnitude is always ~SKY_ORBIT_RADIUS_M,
-  // but sky.position is only set in the separate timeOfDayHours effect —
-  // so this uses the light's position as of THIS render).
-  const lightDistance = skyLight.position.distanceTo(skyLight.target.position);
-  skyLight.shadow.camera.near = Math.max(0.1, lightDistance - halfWidth * 2);
-  skyLight.shadow.camera.far = lightDistance + halfWidth * 2;
-
-  skyLight.shadow.camera.updateProjectionMatrix();
-}
+    if (skyLight) {
+      const m = SHADOW_FRUSTUM_MARGIN_M;
+      const halfWidth = Math.max(fullBounds.radius, 1) + m;
+      skyLight.target.position.set(fullBounds.centerX, fullBounds.centerY, fullBounds.centerZ);
+      skyLight.shadow.camera.left = -halfWidth;
+      skyLight.shadow.camera.right = halfWidth;
+      skyLight.shadow.camera.top = halfWidth;
+      skyLight.shadow.camera.bottom = -halfWidth;
+      const lightDistance = skyLight.position.distanceTo(skyLight.target.position);
+      skyLight.shadow.camera.near = Math.max(0.1, lightDistance - halfWidth * 2);
+      skyLight.shadow.camera.far = lightDistance + halfWidth * 2;
+      skyLight.shadow.camera.updateProjectionMatrix();
+    }
     const isFirstBuild = prevShapeRef.current === null;
     const previousShape = prevShapeRef.current;
     const focusDiff = isFirstBuild ? null : diffFocusLegs(previousShape!, shape);
