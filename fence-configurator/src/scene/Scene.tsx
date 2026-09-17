@@ -682,9 +682,16 @@ export default function Scene({
     controls.enablePan = false;
     controls.enableDamping = true;
     controls.dampingFactor = 0.5;
-    controls.enableZoom = false;
+    // Stays TRUE — needed for OrbitControls' native two-finger pinch-zoom
+    // on touch. Desktop mouse-wheel zoom is still fully handled by our own
+    // handleWheelZoom below, not this: that handler runs in the capture
+    // phase and calls stopImmediatePropagation(), so OrbitControls never
+    // even sees wheel events regardless of this flag. Turning enableZoom
+    // off entirely (as before) was redundant for wheel and had the side
+    // effect of also disabling pinch, since OrbitControls gates BOTH
+    // input methods behind this one flag internally.
+    controls.enableZoom = true;
     controlsRef.current = controls;
-
     // Fixed zoom distance per wheel step.
     const ZOOM_STEP_M = 1.25;
 
