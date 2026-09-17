@@ -328,10 +328,10 @@ const CLOUD_ELEVATION_JITTER_M = 10;
 const CLOUD_AZIMUTH_SPAN_DEG = 200;// Slow drift — a full 360° loop takes (360 / this) seconds, ≈12 minutes
 // at this value. Purely time-driven (performance.now()), NOT tied to
 // timeOfDayHours — only cloud COLOR is tied to the hour, not position.
-const CLOUD_DRIFT_DEG_PER_SEC = 0.5;
+const CLOUD_DRIFT_DEG_PER_SEC = 0.3;
 const CLOUD_SHADOW_Y_OFFSET_M = 1.2;
-const CLOUD_SCALE_MIN = 10;
-const CLOUD_SCALE_MAX = 16;// tweak these two numbers to brighten/dim the whole day or night cycle at once
+const CLOUD_SCALE_MIN = 8;
+const CLOUD_SCALE_MAX = 20;// tweak these two numbers to brighten/dim the whole day or night cycle at once
 // without editing each keyframe row individually.
 const SUN_BRIGHTNESS_SCALE = 3;
 const MOON_BRIGHTNESS_SCALE = 1;
