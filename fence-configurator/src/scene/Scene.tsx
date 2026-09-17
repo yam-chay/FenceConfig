@@ -131,6 +131,7 @@ export function resolveSpacerMultiplier(
 }
 
 /**
+ * 
  * Pure — used by Scene to resolve each board's dims while stacking, and by
  * the panel to seed the type/size carousel with a clicked board's current
  * profile. `fallbackModelId`/`fallbackSizeId` are the leg's own model/size
