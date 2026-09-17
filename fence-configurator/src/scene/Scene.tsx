@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { layoutShape, fieldCountForLeg, type Shape } from '../geometry/shape';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';import { layoutShape, fieldCountForLeg, type Shape } from '../geometry/shape';
 import { computeBoardStack, type ResolvedBoardDims } from '../geometry/field';
 import { resolveBoardDims, FENCE_CATALOG } from '../geometry/catalog';
 import { buildPostSpec, activeGrooveFaces, type PostSpec } from '../geometry/post';
@@ -269,6 +269,12 @@ const FOCUS_ELEMENT_PADDING = 1.15; // close zoom-in when selecting a step/post 
 const FOCUS_EDIT_PADDING = 1.3; // recent-edit window: closer than full-shape, looser than a single element — reused below for the deselect case too
 const FULL_SHAPE_PADDING = 1.35;
 const isMobileViewport = () => window.matchMedia('(max-width: 700px)').matches;
+// Brushed-aluminum starting point for the post/board material — not
+// measured, just plausible. Needs scene.environment (see RoomEnvironment
+// setup below) to actually read as metal; metalness alone against a flat
+// background renders dull/grey.
+const ALUMINUM_ROUGHNESS = 0.35;
+const ALUMINUM_METALNESS = 0.75;
 
 /** Builds one merged, constructive post geometry — solid core inset by GROOVE_DEPTH_CM on every side, plus per-face solid wall panels (inactive faces) or paired jambs flanking an open channel (active faces, from spec.grooves). All pieces are merged into ONE BufferGeometry so a post still costs exactly one draw call, same as the old single-box version — grooves shouldn't regress the validated mobile draw-call numbers. */
 function buildPostGeometry(spec: PostSpec): THREE.BufferGeometry {
@@ -551,6 +557,18 @@ export default function Scene({
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
+
+    // Procedural studio-style environment map — gives PBR materials (the
+    // aluminum post/board metalness below) something to actually reflect.
+    // RoomEnvironment is a small built-in procedural room three.js ships
+    // for exactly this — no external image asset needed. Swap for a real
+    // equirectangular photo later (RGBELoader/TextureLoader +
+    // EquirectangularReflectionMapping) once there's an actual site
+    // reference — that's the separate 360-capture feature (TODO M/N/O),
+    // not this.
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmremGenerator.dispose();
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enablePan = false;
@@ -951,6 +969,7 @@ export default function Scene({
       renderer.domElement.removeEventListener('wheel', handleWheelZoom, true);
       controls.dispose();
       renderer.dispose();
+      scene.environment?.dispose();
       container.removeChild(renderer.domElement);
     };
   }, []);
@@ -979,15 +998,23 @@ export default function Scene({
 
     const layout = layoutShape(shape);
 
-    const postMat = new THREE.MeshStandardMaterial({ color: colorScheme.postColorHex });
-    // Separate material JUST for the merged post-box geometry (the one
+   const postMat = new THREE.MeshStandardMaterial({
+      color: colorScheme.postColorHex,
+      roughness: ALUMINUM_ROUGHNESS,
+      metalness: ALUMINUM_METALNESS,
+    });    // Separate material JUST for the merged post-box geometry (the one
     // carrying the groove). vertexColors:true lives ONLY here — the
     // rosette/cap meshes below keep using the plain postMat, since their
     // geometries carry no 'color' attribute and a vertexColors material on
     // an attribute-less geometry renders solid black (WebGL's default for
     // a disabled vertex attribute is 0,0,0,1). That's what turned
     // everything black last time.
-    const postBoxMat = new THREE.MeshStandardMaterial({ color: colorScheme.postColorHex, vertexColors: true });
+  const postBoxMat = new THREE.MeshStandardMaterial({
+      color: colorScheme.postColorHex,
+      vertexColors: true,
+      roughness: ALUMINUM_ROUGHNESS,
+      metalness: ALUMINUM_METALNESS,
+    });
     function withHighlight(mat: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
       const clone = mat.clone();
       // Kept subtle on purpose — this needs to read as "selected" without
@@ -1004,10 +1031,14 @@ export default function Scene({
     // boards in the middle correctly stay on baseBoardColorHex instead of
     // being swallowed by whichever split was set second.
     const boardMatCache = new Map<string, THREE.MeshStandardMaterial>();
-    function boardMaterial(hex: string): THREE.MeshStandardMaterial {
+   function boardMaterial(hex: string): THREE.MeshStandardMaterial {
       let mat = boardMatCache.get(hex);
       if (!mat) {
-        mat = new THREE.MeshStandardMaterial({ color: hex });
+        mat = new THREE.MeshStandardMaterial({
+          color: hex,
+          roughness: ALUMINUM_ROUGHNESS,
+          metalness: ALUMINUM_METALNESS,
+        });
         boardMatCache.set(hex, mat);
       }
       return mat;
