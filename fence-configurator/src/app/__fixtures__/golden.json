@@ -1,0 +1,59 @@
+{
+  "defaultShape": {
+    "legs": [
+      {
+        "lengthM": 6,
+        "baseHeightCm": 0,
+        "heightCm": 113,
+        "modelId": "type-1",
+        "sizeId": "size-1",
+        "wallWidthCm": 12
+      }
+    ],
+    "junctions": []
+  },
+  "defaultColorScheme": {
+    "postColorHex": "#3a3f44",
+    "baseBoardColorHex": "#3a3f44",
+    "boardRules": []
+  },
+  "defaultProfileScheme": {
+    "rules": [],
+    "spacerRules": []
+  },
+  "fenceColorsLength": 4,
+  "fenceColorsFirst": {
+    "name": "אנתרסיט",
+    "hex": "#3a3f44"
+  },
+  "heightForBoardCount": {
+    "baseZero_oneBoard": 9,
+    "baseZero_fiveBoards": 41,
+    "baseNonZero_fiveBoards": 76,
+    "boardCountZero_treatedAsOne": 9,
+    "boardCountNegative_treatedAsOne": 9,
+    "differentDims": 81
+  },
+  "roundToDecimals": {
+    "simple": 1.23,
+    "halfUp": 0.1,
+    "zeroDecimals": 5,
+    "negative": -1.23,
+    "alreadyExact": 3
+  },
+  "formatTrimmed": {
+    "wholeNumber_noTrailingZeros": "6",
+    "oneDecimal_trimsRest": "6.5",
+    "exactDecimals_trimsTrailingZero": "6.1",
+    "allZerosAfterPoint": "6",
+    "smallDecimals": "0.5",
+    "roundedUp": "2"
+  },
+  "clampDecimalString": {
+    "noDot_unchanged": "12",
+    "withinLimit_unchanged": "12.3",
+    "overLimit_truncated": "12.3",
+    "exactlyAtLimit_unchanged": "12.34",
+    "dotAtEnd_noDigitsAfter": "12."
+  }
+}

@@ -1,0 +1,1609 @@
+{
+  "fieldCountForLeg": {
+    "shortLeg_endEnd": 1,
+    "atCapBoundary_endEnd": 1,
+    "justOverCap_endEnd": 1,
+    "longLeg_endEnd": 4,
+    "longLeg_middleMiddle": 4,
+    "longLeg_middleEnd": 4,
+    "veryLong_middleMiddle": 13,
+    "tiny_middleMiddle": 1
+  },
+  "layoutShapeA_singleShortLeg": {
+    "fields": [
+      {
+        "legIndex": 0,
+        "index": 0,
+        "lengthM": 1.5,
+        "boardLengthM": 1.4225,
+        "position": {
+          "x": 0.75,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "fillHeightCm": 180
+      },
+      {
+        "legIndex": 0,
+        "index": 1,
+        "lengthM": 1.5,
+        "boardLengthM": 1.4225,
+        "position": {
+          "x": 2.25,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "fillHeightCm": 180
+      }
+    ],
+    "posts": [
+      {
+        "index": 0,
+        "legIndices": [
+          0
+        ],
+        "position": {
+          "x": 0,
+          "z": 0
+        },
+        "heading": 0,
+        "rosetteEnd": "start",
+        "baseHeightCm": 0,
+        "heightCm": 180
+      },
+      {
+        "index": 1,
+        "legIndices": [
+          0
+        ],
+        "position": {
+          "x": 1.5,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "heightCm": 180
+      },
+      {
+        "index": 2,
+        "legIndices": [
+          0
+        ],
+        "position": {
+          "x": 3,
+          "z": 0
+        },
+        "heading": 0,
+        "rosetteEnd": "end",
+        "baseHeightCm": 0,
+        "heightCm": 180
+      }
+    ]
+  },
+  "layoutShapeB_longLegInternalSplit": {
+    "fields": [
+      {
+        "legIndex": 0,
+        "index": 0,
+        "lengthM": 1.4285714285714286,
+        "boardLengthM": 1.3778571428571427,
+        "position": {
+          "x": 0.7142857142857143,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "fillHeightCm": 180
+      },
+      {
+        "legIndex": 0,
+        "index": 1,
+        "lengthM": 1.4285714285714286,
+        "boardLengthM": 1.3778571428571427,
+        "position": {
+          "x": 2.142857142857143,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "fillHeightCm": 180
+      },
+      {
+        "legIndex": 0,
+        "index": 2,
+        "lengthM": 1.4285714285714286,
+        "boardLengthM": 1.3778571428571427,
+        "position": {
+          "x": 3.5714285714285716,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "fillHeightCm": 180
+      },
+      {
+        "legIndex": 0,
+        "index": 3,
+        "lengthM": 1.4285714285714286,
+        "boardLengthM": 1.3778571428571427,
+        "position": {
+          "x": 5,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "fillHeightCm": 180
+      },
+      {
+        "legIndex": 0,
+        "index": 4,
+        "lengthM": 1.4285714285714286,
+        "boardLengthM": 1.3778571428571427,
+        "position": {
+          "x": 6.428571428571429,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "fillHeightCm": 180
+      },
+      {
+        "legIndex": 0,
+        "index": 5,
+        "lengthM": 1.4285714285714286,
+        "boardLengthM": 1.3778571428571427,
+        "position": {
+          "x": 7.857142857142858,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "fillHeightCm": 180
+      },
+      {
+        "legIndex": 0,
+        "index": 6,
+        "lengthM": 1.4285714285714286,
+        "boardLengthM": 1.3778571428571427,
+        "position": {
+          "x": 9.285714285714285,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "fillHeightCm": 180
+      }
+    ],
+    "posts": [
+      {
+        "index": 0,
+        "legIndices": [
+          0
+        ],
+        "position": {
+          "x": 0,
+          "z": 0
+        },
+        "heading": 0,
+        "rosetteEnd": "start",
+        "baseHeightCm": 0,
+        "heightCm": 180
+      },
+      {
+        "index": 1,
+        "legIndices": [
+          0
+        ],
+        "position": {
+          "x": 1.4285714285714286,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "heightCm": 180
+      },
+      {
+        "index": 2,
+        "legIndices": [
+          0
+        ],
+        "position": {
+          "x": 2.857142857142857,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "heightCm": 180
+      },
+      {
+        "index": 3,
+        "legIndices": [
+          0
+        ],
+        "position": {
+          "x": 4.285714285714286,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "heightCm": 180
+      },
+      {
+        "index": 4,
+        "legIndices": [
+          0
+        ],
+        "position": {
+          "x": 5.714285714285714,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "heightCm": 180
+      },
+      {
+        "index": 5,
+        "legIndices": [
+          0
+        ],
+        "position": {
+          "x": 7.142857142857143,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "heightCm": 180
+      },
+      {
+        "index": 6,
+        "legIndices": [
+          0
+        ],
+        "position": {
+          "x": 8.571428571428571,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "heightCm": 180
+      },
+      {
+        "index": 7,
+        "legIndices": [
+          0
+        ],
+        "position": {
+          "x": 10,
+          "z": 0
+        },
+        "heading": 0,
+        "rosetteEnd": "end",
+        "baseHeightCm": 0,
+        "heightCm": 180
+      }
+    ]
+  },
+  "layoutShapeC_straightJunction": {
+    "fields": [
+      {
+        "legIndex": 0,
+        "index": 0,
+        "lengthM": 1.3333333333333333,
+        "boardLengthM": 1.2741666666666667,
+        "position": {
+          "x": 0.6666666666666666,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "fillHeightCm": 180
+      },
+      {
+        "legIndex": 0,
+        "index": 1,
+        "lengthM": 1.3333333333333333,
+        "boardLengthM": 1.2741666666666667,
+        "position": {
+          "x": 2,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "fillHeightCm": 180
+      },
+      {
+        "legIndex": 0,
+        "index": 2,
+        "lengthM": 1.3333333333333333,
+        "boardLengthM": 1.2741666666666667,
+        "position": {
+          "x": 3.333333333333333,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "fillHeightCm": 180
+      },
+      {
+        "legIndex": 1,
+        "index": 0,
+        "lengthM": 1.25,
+        "boardLengthM": 1.195625,
+        "position": {
+          "x": 4.625,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "fillHeightCm": 180
+      },
+      {
+        "legIndex": 1,
+        "index": 1,
+        "lengthM": 1.25,
+        "boardLengthM": 1.195625,
+        "position": {
+          "x": 5.875,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "fillHeightCm": 180
+      },
+      {
+        "legIndex": 1,
+        "index": 2,
+        "lengthM": 1.25,
+        "boardLengthM": 1.195625,
+        "position": {
+          "x": 7.125,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "fillHeightCm": 180
+      },
+      {
+        "legIndex": 1,
+        "index": 3,
+        "lengthM": 1.25,
+        "boardLengthM": 1.195625,
+        "position": {
+          "x": 8.375,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "fillHeightCm": 180
+      }
+    ],
+    "posts": [
+      {
+        "index": 0,
+        "legIndices": [
+          0
+        ],
+        "position": {
+          "x": 0,
+          "z": 0
+        },
+        "heading": 0,
+        "rosetteEnd": "start",
+        "baseHeightCm": 0,
+        "heightCm": 180
+      },
+      {
+        "index": 1,
+        "legIndices": [
+          0
+        ],
+        "position": {
+          "x": 1.3333333333333333,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "heightCm": 180
+      },
+      {
+        "index": 2,
+        "legIndices": [
+          0
+        ],
+        "position": {
+          "x": 2.6666666666666665,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "heightCm": 180
+      },
+      {
+        "index": 3,
+        "legIndices": [
+          0,
+          1
+        ],
+        "position": {
+          "x": 4,
+          "z": 0
+        },
+        "heading": 0,
+        "isDoublePost": true,
+        "outgoingHeadingRad": 0,
+        "baseHeightCm": 0,
+        "heightCm": 180
+      },
+      {
+        "index": 4,
+        "legIndices": [
+          1
+        ],
+        "position": {
+          "x": 5.25,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "heightCm": 180
+      },
+      {
+        "index": 5,
+        "legIndices": [
+          1
+        ],
+        "position": {
+          "x": 6.5,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "heightCm": 180
+      },
+      {
+        "index": 6,
+        "legIndices": [
+          1
+        ],
+        "position": {
+          "x": 7.75,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "heightCm": 180
+      },
+      {
+        "index": 7,
+        "legIndices": [
+          1
+        ],
+        "position": {
+          "x": 9,
+          "z": 0
+        },
+        "heading": 0,
+        "rosetteEnd": "end",
+        "baseHeightCm": 0,
+        "heightCm": 180
+      }
+    ]
+  },
+  "layoutShapeD_leftCorner": {
+    "fields": [
+      {
+        "legIndex": 0,
+        "index": 0,
+        "lengthM": 1.3333333333333333,
+        "boardLengthM": 1.2741666666666667,
+        "position": {
+          "x": 0.6666666666666666,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "fillHeightCm": 180
+      },
+      {
+        "legIndex": 0,
+        "index": 1,
+        "lengthM": 1.3333333333333333,
+        "boardLengthM": 1.2741666666666667,
+        "position": {
+          "x": 2,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "fillHeightCm": 180
+      },
+      {
+        "legIndex": 0,
+        "index": 2,
+        "lengthM": 1.3333333333333333,
+        "boardLengthM": 1.2741666666666667,
+        "position": {
+          "x": 3.333333333333333,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "fillHeightCm": 180
+      },
+      {
+        "legIndex": 1,
+        "index": 0,
+        "lengthM": 1.5,
+        "boardLengthM": 1.43125,
+        "position": {
+          "x": 4,
+          "z": 0.75
+        },
+        "heading": 1.5707963267948966,
+        "baseHeightCm": 0,
+        "fillHeightCm": 180
+      },
+      {
+        "legIndex": 1,
+        "index": 1,
+        "lengthM": 1.5,
+        "boardLengthM": 1.43125,
+        "position": {
+          "x": 4,
+          "z": 2.25
+        },
+        "heading": 1.5707963267948966,
+        "baseHeightCm": 0,
+        "fillHeightCm": 180
+      }
+    ],
+    "posts": [
+      {
+        "index": 0,
+        "legIndices": [
+          0
+        ],
+        "position": {
+          "x": 0,
+          "z": 0
+        },
+        "heading": 0,
+        "rosetteEnd": "start",
+        "baseHeightCm": 0,
+        "heightCm": 180
+      },
+      {
+        "index": 1,
+        "legIndices": [
+          0
+        ],
+        "position": {
+          "x": 1.3333333333333333,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "heightCm": 180
+      },
+      {
+        "index": 2,
+        "legIndices": [
+          0
+        ],
+        "position": {
+          "x": 2.6666666666666665,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "heightCm": 180
+      },
+      {
+        "index": 3,
+        "legIndices": [
+          0,
+          1
+        ],
+        "position": {
+          "x": 4,
+          "z": 0
+        },
+        "heading": 0,
+        "isDoublePost": true,
+        "outgoingHeadingRad": 1.5707963267948966,
+        "baseHeightCm": 0,
+        "heightCm": 180
+      },
+      {
+        "index": 4,
+        "legIndices": [
+          1
+        ],
+        "position": {
+          "x": 4,
+          "z": 1.5
+        },
+        "heading": 1.5707963267948966,
+        "baseHeightCm": 0,
+        "heightCm": 180
+      },
+      {
+        "index": 5,
+        "legIndices": [
+          1
+        ],
+        "position": {
+          "x": 4,
+          "z": 3
+        },
+        "heading": 1.5707963267948966,
+        "rosetteEnd": "end",
+        "baseHeightCm": 0,
+        "heightCm": 180
+      }
+    ]
+  },
+  "layoutShapeE_disconnectDifferentBase": {
+    "fields": [
+      {
+        "legIndex": 0,
+        "index": 0,
+        "lengthM": 1.3333333333333333,
+        "boardLengthM": 1.2683333333333333,
+        "position": {
+          "x": 0.6666666666666666,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "fillHeightCm": 180
+      },
+      {
+        "legIndex": 0,
+        "index": 1,
+        "lengthM": 1.3333333333333333,
+        "boardLengthM": 1.2683333333333333,
+        "position": {
+          "x": 2,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "fillHeightCm": 180
+      },
+      {
+        "legIndex": 0,
+        "index": 2,
+        "lengthM": 1.3333333333333333,
+        "boardLengthM": 1.2683333333333333,
+        "position": {
+          "x": 3.333333333333333,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "fillHeightCm": 180
+      },
+      {
+        "legIndex": 1,
+        "index": 0,
+        "lengthM": 1.3333333333333333,
+        "boardLengthM": 1.2683333333333333,
+        "position": {
+          "x": 4.816666666666667,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 20,
+        "fillHeightCm": 160
+      },
+      {
+        "legIndex": 1,
+        "index": 1,
+        "lengthM": 1.3333333333333333,
+        "boardLengthM": 1.2683333333333333,
+        "position": {
+          "x": 6.15,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 20,
+        "fillHeightCm": 160
+      },
+      {
+        "legIndex": 1,
+        "index": 2,
+        "lengthM": 1.3333333333333333,
+        "boardLengthM": 1.2683333333333333,
+        "position": {
+          "x": 7.483333333333333,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 20,
+        "fillHeightCm": 160
+      }
+    ],
+    "posts": [
+      {
+        "index": 0,
+        "legIndices": [
+          0
+        ],
+        "position": {
+          "x": 0,
+          "z": 0
+        },
+        "heading": 0,
+        "rosetteEnd": "start",
+        "baseHeightCm": 0,
+        "heightCm": 180
+      },
+      {
+        "index": 1,
+        "legIndices": [
+          0
+        ],
+        "position": {
+          "x": 1.3333333333333333,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "heightCm": 180
+      },
+      {
+        "index": 2,
+        "legIndices": [
+          0
+        ],
+        "position": {
+          "x": 2.6666666666666665,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "heightCm": 180
+      },
+      {
+        "index": 3,
+        "legIndices": [
+          0
+        ],
+        "position": {
+          "x": 4,
+          "z": 0
+        },
+        "heading": 0,
+        "rosetteEnd": "end",
+        "baseHeightCm": 0,
+        "heightCm": 180
+      },
+      {
+        "index": 4,
+        "legIndices": [
+          1
+        ],
+        "position": {
+          "x": 4.15,
+          "z": 0
+        },
+        "heading": 0,
+        "rosetteEnd": "start",
+        "baseHeightCm": 20,
+        "heightCm": 160
+      },
+      {
+        "index": 5,
+        "legIndices": [
+          1
+        ],
+        "position": {
+          "x": 5.483333333333333,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 20,
+        "heightCm": 160
+      },
+      {
+        "index": 6,
+        "legIndices": [
+          1
+        ],
+        "position": {
+          "x": 6.816666666666666,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 20,
+        "heightCm": 160
+      },
+      {
+        "index": 7,
+        "legIndices": [
+          1
+        ],
+        "position": {
+          "x": 8.15,
+          "z": 0
+        },
+        "heading": 0,
+        "rosetteEnd": "end",
+        "baseHeightCm": 20,
+        "heightCm": 160
+      }
+    ]
+  },
+  "layoutShapeF_existingWallBase": {
+    "fields": [
+      {
+        "legIndex": 0,
+        "index": 0,
+        "lengthM": 1.25,
+        "boardLengthM": 1.19125,
+        "position": {
+          "x": 0.625,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 35,
+        "fillHeightCm": 145
+      },
+      {
+        "legIndex": 0,
+        "index": 1,
+        "lengthM": 1.25,
+        "boardLengthM": 1.19125,
+        "position": {
+          "x": 1.875,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 35,
+        "fillHeightCm": 145
+      },
+      {
+        "legIndex": 0,
+        "index": 2,
+        "lengthM": 1.25,
+        "boardLengthM": 1.19125,
+        "position": {
+          "x": 3.125,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 35,
+        "fillHeightCm": 145
+      },
+      {
+        "legIndex": 0,
+        "index": 3,
+        "lengthM": 1.25,
+        "boardLengthM": 1.19125,
+        "position": {
+          "x": 4.375,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 35,
+        "fillHeightCm": 145
+      }
+    ],
+    "posts": [
+      {
+        "index": 0,
+        "legIndices": [
+          0
+        ],
+        "position": {
+          "x": 0,
+          "z": 0
+        },
+        "heading": 0,
+        "rosetteEnd": "start",
+        "baseHeightCm": 35,
+        "heightCm": 145
+      },
+      {
+        "index": 1,
+        "legIndices": [
+          0
+        ],
+        "position": {
+          "x": 1.25,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 35,
+        "heightCm": 145
+      },
+      {
+        "index": 2,
+        "legIndices": [
+          0
+        ],
+        "position": {
+          "x": 2.5,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 35,
+        "heightCm": 145
+      },
+      {
+        "index": 3,
+        "legIndices": [
+          0
+        ],
+        "position": {
+          "x": 3.75,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 35,
+        "heightCm": 145
+      },
+      {
+        "index": 4,
+        "legIndices": [
+          0
+        ],
+        "position": {
+          "x": 5,
+          "z": 0
+        },
+        "heading": 0,
+        "rosetteEnd": "end",
+        "baseHeightCm": 35,
+        "heightCm": 145
+      }
+    ]
+  },
+  "layoutShapeG_threeLegsMixed": {
+    "fields": [
+      {
+        "legIndex": 0,
+        "index": 0,
+        "lengthM": 1.5,
+        "boardLengthM": 1.43125,
+        "position": {
+          "x": 0.75,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "fillHeightCm": 180
+      },
+      {
+        "legIndex": 0,
+        "index": 1,
+        "lengthM": 1.5,
+        "boardLengthM": 1.43125,
+        "position": {
+          "x": 2.25,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "fillHeightCm": 180
+      },
+      {
+        "legIndex": 1,
+        "index": 0,
+        "lengthM": 1.3333333333333333,
+        "boardLengthM": 1.28,
+        "position": {
+          "x": 3.6666666666666665,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "fillHeightCm": 160
+      },
+      {
+        "legIndex": 1,
+        "index": 1,
+        "lengthM": 1.3333333333333333,
+        "boardLengthM": 1.28,
+        "position": {
+          "x": 5,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "fillHeightCm": 160
+      },
+      {
+        "legIndex": 1,
+        "index": 2,
+        "lengthM": 1.3333333333333333,
+        "boardLengthM": 1.28,
+        "position": {
+          "x": 6.333333333333333,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "fillHeightCm": 160
+      },
+      {
+        "legIndex": 2,
+        "index": 0,
+        "lengthM": 1.25,
+        "boardLengthM": 1.18125,
+        "position": {
+          "x": 6.999999999999999,
+          "z": -0.625
+        },
+        "heading": -1.5707963267948966,
+        "baseHeightCm": 0,
+        "fillHeightCm": 160
+      },
+      {
+        "legIndex": 2,
+        "index": 1,
+        "lengthM": 1.25,
+        "boardLengthM": 1.18125,
+        "position": {
+          "x": 6.999999999999999,
+          "z": -1.875
+        },
+        "heading": -1.5707963267948966,
+        "baseHeightCm": 0,
+        "fillHeightCm": 160
+      }
+    ],
+    "posts": [
+      {
+        "index": 0,
+        "legIndices": [
+          0
+        ],
+        "position": {
+          "x": 0,
+          "z": 0
+        },
+        "heading": 0,
+        "rosetteEnd": "start",
+        "baseHeightCm": 0,
+        "heightCm": 180
+      },
+      {
+        "index": 1,
+        "legIndices": [
+          0
+        ],
+        "position": {
+          "x": 1.5,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "heightCm": 180
+      },
+      {
+        "index": 2,
+        "legIndices": [
+          0,
+          1
+        ],
+        "position": {
+          "x": 3,
+          "z": 0
+        },
+        "heading": 0,
+        "isDoublePost": true,
+        "outgoingHeadingRad": 0,
+        "baseHeightCm": 0,
+        "heightCm": 180
+      },
+      {
+        "index": 3,
+        "legIndices": [
+          1
+        ],
+        "position": {
+          "x": 4.333333333333333,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "heightCm": 160
+      },
+      {
+        "index": 4,
+        "legIndices": [
+          1
+        ],
+        "position": {
+          "x": 5.666666666666666,
+          "z": 0
+        },
+        "heading": 0,
+        "baseHeightCm": 0,
+        "heightCm": 160
+      },
+      {
+        "index": 5,
+        "legIndices": [
+          1,
+          2
+        ],
+        "position": {
+          "x": 6.999999999999999,
+          "z": 0
+        },
+        "heading": 0,
+        "isDoublePost": true,
+        "outgoingHeadingRad": -1.5707963267948966,
+        "baseHeightCm": 0,
+        "heightCm": 160
+      },
+      {
+        "index": 6,
+        "legIndices": [
+          2
+        ],
+        "position": {
+          "x": 6.999999999999999,
+          "z": -1.25
+        },
+        "heading": -1.5707963267948966,
+        "baseHeightCm": 0,
+        "heightCm": 160
+      },
+      {
+        "index": 7,
+        "legIndices": [
+          2
+        ],
+        "position": {
+          "x": 6.999999999999999,
+          "z": -2.5
+        },
+        "heading": -1.5707963267948966,
+        "rosetteEnd": "end",
+        "baseHeightCm": 0,
+        "heightCm": 160
+      }
+    ]
+  },
+  "boardStackA_singleType": {
+    "boards": [
+      {
+        "centerCm": 5.5,
+        "stepIndex": 0,
+        "boardHeightCm": 7,
+        "spacerBelowCm": 0,
+        "modelId": "type-1",
+        "sizeId": "size-1"
+      },
+      {
+        "centerCm": 13.5,
+        "stepIndex": 1,
+        "boardHeightCm": 7,
+        "spacerBelowCm": 1,
+        "modelId": "type-1",
+        "sizeId": "size-1"
+      },
+      {
+        "centerCm": 21.5,
+        "stepIndex": 2,
+        "boardHeightCm": 7,
+        "spacerBelowCm": 1,
+        "modelId": "type-1",
+        "sizeId": "size-1"
+      },
+      {
+        "centerCm": 29.5,
+        "stepIndex": 3,
+        "boardHeightCm": 7,
+        "spacerBelowCm": 1,
+        "modelId": "type-1",
+        "sizeId": "size-1"
+      },
+      {
+        "centerCm": 37.5,
+        "stepIndex": 4,
+        "boardHeightCm": 7,
+        "spacerBelowCm": 1,
+        "modelId": "type-1",
+        "sizeId": "size-1"
+      },
+      {
+        "centerCm": 45.5,
+        "stepIndex": 5,
+        "boardHeightCm": 7,
+        "spacerBelowCm": 1,
+        "modelId": "type-1",
+        "sizeId": "size-1"
+      },
+      {
+        "centerCm": 53.5,
+        "stepIndex": 6,
+        "boardHeightCm": 7,
+        "spacerBelowCm": 1,
+        "modelId": "type-1",
+        "sizeId": "size-1"
+      },
+      {
+        "centerCm": 61.5,
+        "stepIndex": 7,
+        "boardHeightCm": 7,
+        "spacerBelowCm": 1,
+        "modelId": "type-1",
+        "sizeId": "size-1"
+      },
+      {
+        "centerCm": 69.5,
+        "stepIndex": 8,
+        "boardHeightCm": 7,
+        "spacerBelowCm": 1,
+        "modelId": "type-1",
+        "sizeId": "size-1"
+      },
+      {
+        "centerCm": 77.5,
+        "stepIndex": 9,
+        "boardHeightCm": 7,
+        "spacerBelowCm": 1,
+        "modelId": "type-1",
+        "sizeId": "size-1"
+      },
+      {
+        "centerCm": 85.5,
+        "stepIndex": 10,
+        "boardHeightCm": 7,
+        "spacerBelowCm": 1,
+        "modelId": "type-1",
+        "sizeId": "size-1"
+      },
+      {
+        "centerCm": 93.5,
+        "stepIndex": 11,
+        "boardHeightCm": 7,
+        "spacerBelowCm": 1,
+        "modelId": "type-1",
+        "sizeId": "size-1"
+      },
+      {
+        "centerCm": 101.5,
+        "stepIndex": 12,
+        "boardHeightCm": 7,
+        "spacerBelowCm": 1,
+        "modelId": "type-1",
+        "sizeId": "size-1"
+      },
+      {
+        "centerCm": 109.5,
+        "stepIndex": 13,
+        "boardHeightCm": 7,
+        "spacerBelowCm": 1,
+        "modelId": "type-1",
+        "sizeId": "size-1"
+      },
+      {
+        "centerCm": 117.5,
+        "stepIndex": 14,
+        "boardHeightCm": 7,
+        "spacerBelowCm": 1,
+        "modelId": "type-1",
+        "sizeId": "size-1"
+      },
+      {
+        "centerCm": 125.5,
+        "stepIndex": 15,
+        "boardHeightCm": 7,
+        "spacerBelowCm": 1,
+        "modelId": "type-1",
+        "sizeId": "size-1"
+      },
+      {
+        "centerCm": 133.5,
+        "stepIndex": 16,
+        "boardHeightCm": 7,
+        "spacerBelowCm": 1,
+        "modelId": "type-1",
+        "sizeId": "size-1"
+      },
+      {
+        "centerCm": 141.5,
+        "stepIndex": 17,
+        "boardHeightCm": 7,
+        "spacerBelowCm": 1,
+        "modelId": "type-1",
+        "sizeId": "size-1"
+      },
+      {
+        "centerCm": 149.5,
+        "stepIndex": 18,
+        "boardHeightCm": 7,
+        "spacerBelowCm": 1,
+        "modelId": "type-1",
+        "sizeId": "size-1"
+      },
+      {
+        "centerCm": 157.5,
+        "stepIndex": 19,
+        "boardHeightCm": 7,
+        "spacerBelowCm": 1,
+        "modelId": "type-1",
+        "sizeId": "size-1"
+      },
+      {
+        "centerCm": 165.5,
+        "stepIndex": 20,
+        "boardHeightCm": 7,
+        "spacerBelowCm": 1,
+        "modelId": "type-1",
+        "sizeId": "size-1"
+      },
+      {
+        "centerCm": 173.5,
+        "stepIndex": 21,
+        "boardHeightCm": 7,
+        "spacerBelowCm": 1,
+        "modelId": "type-1",
+        "sizeId": "size-1"
+      }
+    ],
+    "filledHeightCm": 177
+  },
+  "boardStackB_mixedProfiles": {
+    "boards": [
+      {
+        "centerCm": 4,
+        "stepIndex": 0,
+        "boardHeightCm": 4,
+        "spacerBelowCm": 0,
+        "modelId": "type-2",
+        "sizeId": "size-1"
+      },
+      {
+        "centerCm": 9,
+        "stepIndex": 1,
+        "boardHeightCm": 4,
+        "spacerBelowCm": 1,
+        "modelId": "type-2",
+        "sizeId": "size-1"
+      },
+      {
+        "centerCm": 14,
+        "stepIndex": 2,
+        "boardHeightCm": 4,
+        "spacerBelowCm": 1,
+        "modelId": "type-2",
+        "sizeId": "size-1"
+      },
+      {
+        "centerCm": 18,
+        "stepIndex": 3,
+        "boardHeightCm": 2,
+        "spacerBelowCm": 1,
+        "modelId": "type-2",
+        "sizeId": "size-2"
+      },
+      {
+        "centerCm": 21,
+        "stepIndex": 4,
+        "boardHeightCm": 2,
+        "spacerBelowCm": 1,
+        "modelId": "type-2",
+        "sizeId": "size-2"
+      },
+      {
+        "centerCm": 24,
+        "stepIndex": 5,
+        "boardHeightCm": 2,
+        "spacerBelowCm": 1,
+        "modelId": "type-2",
+        "sizeId": "size-2"
+      },
+      {
+        "centerCm": 27,
+        "stepIndex": 6,
+        "boardHeightCm": 2,
+        "spacerBelowCm": 1,
+        "modelId": "type-2",
+        "sizeId": "size-2"
+      },
+      {
+        "centerCm": 30,
+        "stepIndex": 7,
+        "boardHeightCm": 2,
+        "spacerBelowCm": 1,
+        "modelId": "type-2",
+        "sizeId": "size-2"
+      },
+      {
+        "centerCm": 33,
+        "stepIndex": 8,
+        "boardHeightCm": 2,
+        "spacerBelowCm": 1,
+        "modelId": "type-2",
+        "sizeId": "size-2"
+      },
+      {
+        "centerCm": 36,
+        "stepIndex": 9,
+        "boardHeightCm": 2,
+        "spacerBelowCm": 1,
+        "modelId": "type-2",
+        "sizeId": "size-2"
+      },
+      {
+        "centerCm": 39,
+        "stepIndex": 10,
+        "boardHeightCm": 2,
+        "spacerBelowCm": 1,
+        "modelId": "type-2",
+        "sizeId": "size-2"
+      },
+      {
+        "centerCm": 42,
+        "stepIndex": 11,
+        "boardHeightCm": 2,
+        "spacerBelowCm": 1,
+        "modelId": "type-2",
+        "sizeId": "size-2"
+      },
+      {
+        "centerCm": 45,
+        "stepIndex": 12,
+        "boardHeightCm": 2,
+        "spacerBelowCm": 1,
+        "modelId": "type-2",
+        "sizeId": "size-2"
+      },
+      {
+        "centerCm": 48,
+        "stepIndex": 13,
+        "boardHeightCm": 2,
+        "spacerBelowCm": 1,
+        "modelId": "type-2",
+        "sizeId": "size-2"
+      },
+      {
+        "centerCm": 51,
+        "stepIndex": 14,
+        "boardHeightCm": 2,
+        "spacerBelowCm": 1,
+        "modelId": "type-2",
+        "sizeId": "size-2"
+      },
+      {
+        "centerCm": 54,
+        "stepIndex": 15,
+        "boardHeightCm": 2,
+        "spacerBelowCm": 1,
+        "modelId": "type-2",
+        "sizeId": "size-2"
+      },
+      {
+        "centerCm": 57,
+        "stepIndex": 16,
+        "boardHeightCm": 2,
+        "spacerBelowCm": 1,
+        "modelId": "type-2",
+        "sizeId": "size-2"
+      }
+    ],
+    "filledHeightCm": 58
+  },
+  "boardStackC_fallbackNarrowsToFitGap": {
+    "boards": [
+      {
+        "centerCm": 4,
+        "stepIndex": 0,
+        "boardHeightCm": 4,
+        "spacerBelowCm": 0,
+        "modelId": "type-2",
+        "sizeId": "size-1"
+      },
+      {
+        "centerCm": 9,
+        "stepIndex": 1,
+        "boardHeightCm": 4,
+        "spacerBelowCm": 1,
+        "modelId": "type-2",
+        "sizeId": "size-1"
+      },
+      {
+        "centerCm": 14,
+        "stepIndex": 2,
+        "boardHeightCm": 4,
+        "spacerBelowCm": 1,
+        "modelId": "type-2",
+        "sizeId": "size-1"
+      },
+      {
+        "centerCm": 19,
+        "stepIndex": 3,
+        "boardHeightCm": 4,
+        "spacerBelowCm": 1,
+        "modelId": "type-2",
+        "sizeId": "size-1"
+      }
+    ],
+    "filledHeightCm": 21
+  },
+  "faceForDirection": {
+    "same": "posX",
+    "plus90": "posZ",
+    "plus180": "negX",
+    "plus270": "negZ",
+    "negativeRel": "negZ",
+    "nonZeroPostHeading_plus90": "posZ"
+  },
+  "activeGrooveFaces": {
+    "trueEndPost_start": [
+      "posX"
+    ],
+    "trueEndPost_end": [
+      "negX"
+    ],
+    "internalSplitPost": [
+      "posX",
+      "negX"
+    ],
+    "doublePost_straight": [
+      "negX",
+      "posX"
+    ],
+    "doublePost_leftCorner": [
+      "negX",
+      "posZ"
+    ],
+    "doublePost_rightCorner": [
+      "negX",
+      "negZ"
+    ]
+  },
+  "buildPostSpec": {
+    "thicknessCm": 6,
+    "heightCm": 180,
+    "grooves": [
+      {
+        "face": "posX",
+        "widthCm": 2,
+        "depthCm": 1.5
+      },
+      {
+        "face": "negX",
+        "widthCm": 2,
+        "depthCm": 1.5
+      }
+    ]
+  },
+  "catalog": {
+    "known": {
+      "boardHeightCm": 2,
+      "spacerHeightCm": 1
+    },
+    "unknownModel_fallsBackToFirst": {
+      "boardHeightCm": 7,
+      "spacerHeightCm": 1
+    },
+    "unknownSizeKnownModel_fallsBackToFirstSize": {
+      "boardHeightCm": 4,
+      "spacerHeightCm": 1
+    },
+    "sizesForKnownModel": [
+      {
+        "id": "size-1",
+        "boardHeightCm": 4,
+        "spacerHeightCm": 1
+      },
+      {
+        "id": "size-2",
+        "boardHeightCm": 2,
+        "spacerHeightCm": 1
+      }
+    ],
+    "sizesForUnknownModel": [],
+    "catalogLength": 3
+  }
+}

@@ -3,8 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';import { layoutShape, fieldCountForLeg, type Shape } from '../geometry/shape';
-import { computeBoardStack, type ResolvedBoardDims } from '../geometry/field';
-import { resolveBoardDims, FENCE_CATALOG } from '../geometry/catalog';
+import { computeBoardStack } from '../geometry/field';
 import { buildPostSpec, activeGrooveFaces, type PostSpec } from '../geometry/post';
 import {
   POST_THICKNESS_CM,
@@ -16,211 +15,11 @@ import {
   GROOVE_DEPTH_CM,
   CAP_COLOR_HEX,
 } from '../geometry/constants';
-/** What got clicked — a post (color applies to ALL posts) or a board at a given absolute height (color applies via the below/above split). */
-export type Selection =
-  | { kind: 'post' }
-  | {
-    kind: 'board';
-    legIndex: number;
-    fieldIndex: number;
-    heightCm: number;
-    stepIndex: number;
-    stepIndices: number[];
-    stepHeights: Record<number, number>;
-  };
+import type { Selection, ColorScheme, ProfileScheme } from './types';
+import { resolveBoardColorHex, resolveBoardStepCandidates } from './resolvers';
 
-/**
- * One coloring action, in the order it was taken. Later rules override
- * earlier ones for any board they both match — this is what makes "last
- * action wins" work automatically, including for overlapping below/above
- * ranges, with no separate recency flag needed.
- */
-export interface BoardColorRule {
-  heightCm: number;
-  colorHex: string;
-  /** 'exact' = just the one board clicked. 'below'/'above' = that board and everything toward the ground/sky, within this rule's scope. */
-  direction: 'exact' | 'below' | 'above';
-  /** 'field' = just the column of boards between the 2 posts this was clicked in. 'global' = every field in the whole shape. */
-  scope: 'field' | 'global';
-  legIndex?: number;
-  fieldIndex?: number;
-}
-
-export interface ColorScheme {
-  postColorHex: string;
-  /** Used by any board no rule below applies to. */
-  baseBoardColorHex: string;
-  boardRules: BoardColorRule[];
-}
-
-/** Pure — used by both the scene (to color meshes) and the panel (to seed the color picker with a board's current color on click). */
-export function resolveBoardColorHex(
-  colorScheme: ColorScheme,
-  legIndex: number,
-  fieldIndex: number,
-  heightCm: number,
-): string {
-  let color = colorScheme.baseBoardColorHex;
-  for (const rule of colorScheme.boardRules) {
-    if (rule.scope === 'field' && (rule.legIndex !== legIndex || rule.fieldIndex !== fieldIndex)) continue;
-    let matches = false;
-    if (rule.direction === 'exact') matches = Math.abs(rule.heightCm - heightCm) < 0.05;
-    else if (rule.direction === 'below') matches = heightCm <= rule.heightCm;
-    else matches = heightCm >= rule.heightCm;
-    if (matches) color = rule.colorHex;
-  }
-  return color;
-}
-
-/**
- * One profile-type action, in the order it was taken — same match semantics
- * as BoardColorRule ('exact'/'below'/'above', 'field'/'global' scope, later
- * rules win), but keyed on STEP INDEX instead of height. Color can safely
- * key on height because it's resolved AFTER geometry is final; profile
- * cannot, because profile DETERMINES geometry — any height key circularly
- * depends on the very types being resolved. Step index (0 = bottom board)
- * is just the stacking walk's loop counter: always known first, matched by
- * plain integer equality, no epsilon anywhere.
- */
-export interface BoardProfileRule {
-  stepIndex: number;
-  modelId: string;
-  sizeId: string;
-  direction: 'exact' | 'below' | 'above';
-  scope: 'field' | 'global';
-  legIndex?: number;
-  fieldIndex?: number;
-}
-
-export interface ProfileScheme {
-  rules: BoardProfileRule[];
-  spacerRules: SpacerRule[];
-}
-
-/**
- * Same rule machinery as BoardProfileRule, but the payload is a multiplier
- * on the spacer BELOW a step (×1 normal, ×2 double, ×0.5 half, etc.). Step
- * 0 has no spacer below it, so a rule matching it simply has no effect.
- */
-export interface SpacerRule {
-  stepIndex: number;
-  multiplier: number;
-  direction: 'exact' | 'below' | 'above';
-  scope: 'field' | 'global';
-  legIndex?: number;
-  fieldIndex?: number;
-}
-
-/** Pure — resolves the spacer multiplier for one step, default ×1. Later rules win, same as everything else. */
-export function resolveSpacerMultiplier(
-  profileScheme: ProfileScheme,
-  legIndex: number,
-  fieldIndex: number,
-  stepIndex: number,
-): number {
-  let multiplier = 1;
-  for (const rule of profileScheme.spacerRules) {
-    if (rule.scope === 'field' && (rule.legIndex !== legIndex || rule.fieldIndex !== fieldIndex)) continue;
-    let matches = false;
-    if (rule.direction === 'exact') matches = rule.stepIndex === stepIndex;
-    else if (rule.direction === 'below') matches = stepIndex <= rule.stepIndex;
-    else matches = stepIndex >= rule.stepIndex;
-    if (matches) multiplier = rule.multiplier;
-  }
-  return multiplier;
-}
-
-/**
- * 
- * Pure — used by Scene to resolve each board's dims while stacking, and by
- * the panel to seed the type/size carousel with a clicked board's current
- * profile. `fallbackModelId`/`fallbackSizeId` are the leg's own model/size
- * (the "סוג פרופיל (לכל המקטע)" / "גודל" carousels) — a passive default a
- * rule overrides only at the step indices it targets.
- */
-export function resolveBoardProfile(
-  profileScheme: ProfileScheme,
-  legIndex: number,
-  fieldIndex: number,
-  stepIndex: number,
-  fallbackModelId: string,
-  fallbackSizeId: string,
-): { modelId: string; sizeId: string; fromRule: boolean } {
-  let modelId = fallbackModelId;
-  let sizeId = fallbackSizeId;
-  let fromRule = false;
-  for (const rule of profileScheme.rules) {
-    if (rule.scope === 'field' && (rule.legIndex !== legIndex || rule.fieldIndex !== fieldIndex)) continue;
-    let matches = false;
-    if (rule.direction === 'exact') matches = rule.stepIndex === stepIndex;
-    else if (rule.direction === 'below') matches = stepIndex <= rule.stepIndex;
-    else matches = stepIndex >= rule.stepIndex;
-    if (matches) {
-      modelId = rule.modelId;
-      sizeId = rule.sizeId;
-      fromRule = true;
-    }
-  }
-  return { modelId, sizeId, fromRule };
-}
-
-/**
- * Builds the ordered candidate list computeBoardStack tries for one step.
- * An explicit profile rule is absolute — a single candidate, no fallback,
- * respecting a deliberate manual choice even on the rare step where it
- * doesn't fit. The leg's own passive default is always tried first; when
- * no rule matches AND the default doesn't fit the remaining room, every
- * OTHER model/size in the whole catalog is offered as a fallback too —
- * confirmed: mixing models/profile types for just that last step is fine,
- * closing flush matters more than staying single-profile. Fallbacks are
- * sorted by their own (board + spacer) step size, largest first, so
- * computeBoardStack's "take the first that fits" naturally picks whichever
- * one gets closest to the ceiling without going over — recomputed fresh
- * every render from current geometry, so it never goes stale: moving
- * baseHeightCm again always re-solves for whatever profile now fits best,
- * rather than leaving behind a leftover gap from a stale earlier choice.
- */
-export function resolveBoardStepCandidates(
-  profileScheme: ProfileScheme,
-  legIndex: number,
-  fieldIndex: number,
-  stepIndex: number,
-  fallbackModelId: string,
-  fallbackSizeId: string,
-): ResolvedBoardDims[] {
-  const { modelId, sizeId, fromRule } = resolveBoardProfile(
-    profileScheme,
-    legIndex,
-    fieldIndex,
-    stepIndex,
-    fallbackModelId,
-    fallbackSizeId,
-  );
-  const spacerMultiplier = resolveSpacerMultiplier(profileScheme, legIndex, fieldIndex, stepIndex);
-  const primaryDims = resolveBoardDims(modelId, sizeId);
-  const primary: ResolvedBoardDims = {
-    modelId,
-    sizeId,
-    boardHeightCm: primaryDims.boardHeightCm,
-    spacerHeightCm: primaryDims.spacerHeightCm * spacerMultiplier,
-  };
-
-  if (fromRule) return [primary];
-
-  const alternates: ResolvedBoardDims[] = FENCE_CATALOG.flatMap((model) =>
-    model.sizes
-      .filter((size) => !(model.id === modelId && size.id === sizeId))
-      .map((size) => ({
-        modelId: model.id,
-        sizeId: size.id,
-        boardHeightCm: size.boardHeightCm,
-        spacerHeightCm: size.spacerHeightCm * spacerMultiplier,
-      })),
-  ).sort((a, b) => b.boardHeightCm + b.spacerHeightCm - (a.boardHeightCm + a.spacerHeightCm));
-
-  return [primary, ...alternates];
-}
-
+export type { Selection, ColorScheme, ProfileScheme, BoardColorRule, BoardProfileRule, SpacerRule } from './types';
+export { resolveBoardColorHex, resolveBoardProfile, resolveSpacerMultiplier, resolveBoardStepCandidates } from './resolvers';
 interface SceneProps {
   shape: Shape;
   colorScheme: ColorScheme;
@@ -380,8 +179,8 @@ function drawSkyGradient(
 // NOT verified against the actual render yet — if the sun/moon discs turn
 // out to sit behind the camera instead of in front of it, flip the sign
 // on SKY_ORBIT_DEPTH_Z_M (try -22).
-const SKY_ORBIT_RADIUS_M = 60;
-const SKY_ORBIT_DEPTH_Z_M = 22;
+const SKY_ORBIT_RADIUS_M = 120;
+const SKY_ORBIT_DEPTH_Z_M = 44;
 
 // Reorients the WHOLE arc as one rigid rotation, so sunset (hour 18)
 // lands near where the camera is actually looking, offset to one side —
@@ -1614,8 +1413,8 @@ export default function Scene({
       }
       return mat;
     }
-    function resolveHex(legIndex: number, fieldIndex: number, heightCm: number): string {
-      return resolveBoardColorHex(colorScheme, legIndex, fieldIndex, heightCm);
+    function resolveHex(legIndex: number, fieldIndex: number, stepIndex: number): string {
+      return resolveBoardColorHex(colorScheme, legIndex, fieldIndex, stepIndex);
     }
 
     const postThicknessM = POST_THICKNESS_CM / 100;
@@ -1914,7 +1713,7 @@ export default function Scene({
 
       for (const board of boardStack.boards) {
         const boardAbsHeightCm = field.baseHeightCm + board.centerCm;
-        const hex = resolveHex(field.legIndex, field.index, boardAbsHeightCm);
+        const hex = resolveHex(field.legIndex, field.index, board.stepIndex);
         const isHighlighted =
           selection?.kind === 'board' &&
           selection.legIndex === field.legIndex &&
@@ -1964,16 +1763,25 @@ export default function Scene({
     // wildly (one short leg vs. many long ones), and a frustum sized for
     // the worst case would waste shadow-map resolution on short fences.
     const skyLight = sunLightRef.current;
-    if (skyLight) {
-      const m = SHADOW_FRUSTUM_MARGIN_M;
-      const halfWidth = Math.max(fullBounds.radius, 1) + m;
-      skyLight.target.position.set(fullBounds.centerX, fullBounds.centerY, fullBounds.centerZ);
-      skyLight.shadow.camera.left = -halfWidth;
-      skyLight.shadow.camera.right = halfWidth;
-      skyLight.shadow.camera.top = halfWidth;
-      skyLight.shadow.camera.bottom = -halfWidth;
-      skyLight.shadow.camera.updateProjectionMatrix();
-    }
+if (skyLight) {
+  const m = SHADOW_FRUSTUM_MARGIN_M;
+  const halfWidth = Math.max(fullBounds.radius, 1) + m;
+  skyLight.target.position.set(fullBounds.centerX, fullBounds.centerY, fullBounds.centerZ);
+  skyLight.shadow.camera.left = -halfWidth;
+  skyLight.shadow.camera.right = halfWidth;
+  skyLight.shadow.camera.top = halfWidth;
+  skyLight.shadow.camera.bottom = -halfWidth;
+
+  // NEW: near/far must bracket the ACTUAL light→target distance, which
+  // varies with the hour (mergedDir's magnitude is always ~SKY_ORBIT_RADIUS_M,
+  // but sky.position is only set in the separate timeOfDayHours effect —
+  // so this uses the light's position as of THIS render).
+  const lightDistance = skyLight.position.distanceTo(skyLight.target.position);
+  skyLight.shadow.camera.near = Math.max(0.1, lightDistance - halfWidth * 2);
+  skyLight.shadow.camera.far = lightDistance + halfWidth * 2;
+
+  skyLight.shadow.camera.updateProjectionMatrix();
+}
     const isFirstBuild = prevShapeRef.current === null;
     const previousShape = prevShapeRef.current;
     const focusDiff = isFirstBuild ? null : diffFocusLegs(previousShape!, shape);
