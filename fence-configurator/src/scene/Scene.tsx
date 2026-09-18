@@ -1,10 +1,9 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';import { layoutShape, fieldCountForLeg, type Shape } from '../geometry/shape';
 import { computeBoardStack } from '../geometry/field';
-import { buildPostSpec, activeGrooveFaces, type PostSpec } from '../geometry/post';
+import { buildPostSpec, activeGrooveFaces } from '../geometry/post';
 import {
   POST_THICKNESS_CM,
   BOARD_THICKNESS_CM,
@@ -12,7 +11,6 @@ import {
   POST_ACCESSORY_WIDTH_MULTIPLIER,
   POST_CAP_HEIGHT_CM,
   WALL_END_OVERHANG_CM,
-  GROOVE_DEPTH_CM,
   CAP_COLOR_HEX,
 } from '../geometry/constants';
 import type { Selection, ColorScheme, ProfileScheme } from './types';
@@ -33,6 +31,24 @@ import {
   cloudPositionForAzimuth,
   drawCloudTexture,
 } from './environment/clouds';
+import { buildPostGeometry } from './geometry/postGeometry';
+import {
+  DEFAULT_POLAR,
+  DEFAULT_AZIMUTH,
+  AZIMUTH_RANGE,
+  POLAR_RANGE,
+  ZOOM_IN_FACTOR,
+  ZOOM_OUT_FACTOR,
+  FLY_DURATION_MS,
+  CLICK_MOVE_THRESHOLD_PX,
+  FOCUS_ELEMENT_PADDING,
+  FOCUS_EDIT_PADDING,
+  FULL_SHAPE_PADDING,
+  easeInOutQuad,
+} from './camera/cameraUtils';
+import { diffFocusLegs } from './camera/cameraFocus';
+import { ALUMINUM_ROUGHNESS, ALUMINUM_METALNESS, GRASS_COLOR_HEX, GRID_OPACITY } from './materials/materials';
+import { SHADOW_MAP_SIZE, SHADOW_FRUSTUM_MARGIN_M } from './environment/lighting';
 
 export type { Selection, ColorScheme, ProfileScheme, BoardColorRule, BoardProfileRule, SpacerRule } from './types';
 export { resolveBoardColorHex, resolveBoardProfile, resolveSpacerMultiplier, resolveBoardStepCandidates } from './resolvers';
@@ -97,160 +113,7 @@ interface CloudSprite {
   driftDegPerSec: number;
 }
 
-const DEFAULT_POLAR = Math.acos(VIEW_DIRECTION.y);
-const DEFAULT_AZIMUTH = Math.atan2(VIEW_DIRECTION.x, VIEW_DIRECTION.z);
-const AZIMUTH_RANGE = Math.PI / 2; // full horizontal rotation — polar stays locked below
-const POLAR_RANGE = (15 * Math.PI) / 90;
-const ZOOM_IN_FACTOR = 0.55;
-const ZOOM_OUT_FACTOR = 1.7;
-const FLY_DURATION_MS = 600;
-const CLICK_MOVE_THRESHOLD_PX = 6;
-const FOCUS_ELEMENT_PADDING = 1.15; // close zoom-in when selecting a step/post — tight enough to actually see it without manual zooming
-const FOCUS_EDIT_PADDING = 1.3; // recent-edit window: closer than full-shape, looser than a single element — reused below for the deselect case too
-const FULL_SHAPE_PADDING = 1.35;
 const isMobileViewport = () => window.matchMedia('(max-width: 700px)').matches;
-// Brushed-aluminum starting point for the post/board material — not
-// measured, just plausible. Needs scene.environment (see RoomEnvironment
-// setup below) to actually read as metal; metalness alone against a flat
-// background renders dull/grey.
-const ALUMINUM_ROUGHNESS = 0.35;
-const ALUMINUM_METALNESS = 0.75;
-// Flat grass ground — sits just below the grid (see groundMesh.position.y
-// below) so the grid lines stay visible on top without z-fighting. Reacts
-// to the day/night ambient/sun/moon lights automatically since it's a lit
-// MeshStandardMaterial, not a flat/unlit color.
-const GRASS_COLOR_HEX = '#356323';
-/** GridHelper's own material needs transparent:true before this has any effect — see setup below. 1 = fully opaque (current look), lower = grid fades into the grass more. */
-const GRID_OPACITY = 0.4;
-// Shadow map resolution — higher = sharper shadow edges, more GPU cost.
-// Bumped from 1024: at that size covering a frustum sized to the whole
-// fence, each shadow-map texel could be several cm across — bigger than
-// the board/spacer gaps, so fine detail (the groove/step lines between
-// boards) got blurred away entirely. 2048 roughly quarters texel size.
-// Watch FPS on mobile after this change — drop back to 1024 if it tanks.
-const SHADOW_MAP_SIZE = 2048;
-// Extra margin (meters) added around the fence's own bounds when sizing
-// the shadow camera frustum — keeps a board/post near the EDGE of the
-// fence from losing its shadow just because its bounding box was exactly
-// on the frustum's boundary. Kept small on purpose: every extra meter of
-// margin spreads the same SHADOW_MAP_SIZE texel budget thinner, directly
-// costing the fine board-gap detail this frustum needs to resolve.
-const SHADOW_FRUSTUM_MARGIN_M = 0.5;
-
-/** Builds one merged, constructive post geometry — solid core inset by GROOVE_DEPTH_CM on every side, plus per-face solid wall panels (inactive faces) or paired jambs flanking an open channel (active faces, from spec.grooves). All pieces are merged into ONE BufferGeometry so a post still costs exactly one draw call, same as the old single-box version — grooves shouldn't regress the validated mobile draw-call numbers. */
-function buildPostGeometry(spec: PostSpec): THREE.BufferGeometry {
-  const thicknessM = spec.thicknessCm / 100;
-  const heightM = spec.heightCm / 100;
-  const grooveDepthM = GROOVE_DEPTH_CM / 100; // single shared depth today — see constants.ts
-  const half = thicknessM / 2;
-  const coreSizeM = Math.max(0.01, thicknessM - 2 * grooveDepthM);
-
-  const NORMAL_COLOR = new THREE.Color(1, 1, 1); // white — vertex color × material.color = material.color unchanged
-  // Subtle fake-AO at the back of each open channel — no real shadow-casting is set up in the scene, so this is what makes the groove read as a recess. Kept LIGHT deliberately per "טיפה בהירה" — a rendering aid, not a real dimension, so it's a local constant here rather than in constants.ts.
-  const GROOVE_SHADOW_COLOR = new THREE.Color(0.72, 0.72, 0.72);
-  // Thin sliver at the CLOSED end of the channel, flush against the core's own face.
-  const SHADOW_LIP_DEPTH_M = Math.min(grooveDepthM * 0.35, 0.006);
-
-  const pieces: THREE.BufferGeometry[] = [];
-  function addBox(sizeX: number, sizeZ: number, localX: number, localZ: number, color: THREE.Color) {
-    const geo = new THREE.BoxGeometry(sizeX, heightM, sizeZ);
-    geo.translate(localX, 0, localZ);
-    const count = geo.attributes.position.count;
-    const colors = new Float32Array(count * 3);
-    for (let i = 0; i < count; i++) {
-      colors[i * 3] = color.r;
-      colors[i * 3 + 1] = color.g;
-      colors[i * 3 + 2] = color.b;
-    }
-    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    pieces.push(geo);
-  }
-
-  addBox(coreSizeM, coreSizeM, 0, 0, NORMAL_COLOR); // core, always present
-
-  const grooveByFace = new Map(spec.grooves.map((g) => [g.face, g]));
-  const faceDefs: { face: 'posX' | 'negX' | 'posZ' | 'negZ'; axis: 'x' | 'z'; sign: 1 | -1 }[] = [
-    { face: 'posX', axis: 'x', sign: 1 },
-    { face: 'negX', axis: 'x', sign: -1 },
-    { face: 'posZ', axis: 'z', sign: 1 },
-    { face: 'negZ', axis: 'z', sign: -1 },
-  ];
-
-  for (const { face, axis, sign } of faceDefs) {
-    const groove = grooveByFace.get(face);
-    const outerOffset = sign * (half - grooveDepthM / 2); // flush against this face, inner edge meets the core
-
-    if (!groove) {
-      if (axis === 'x') addBox(grooveDepthM, thicknessM, outerOffset, 0, NORMAL_COLOR);
-      else addBox(thicknessM, grooveDepthM, 0, outerOffset, NORMAL_COLOR);
-      continue;
-    }
-
-    const grooveWidthM = Math.min(Math.max(groove.widthCm / 100, 0), thicknessM - 0.01);
-    const jambWidthM = Math.max(0, (thicknessM - grooveWidthM) / 2);
-    if (jambWidthM <= 0.001) continue; // groove spans (almost) the whole face — nothing to render
-
-    const jambCenter = half - jambWidthM / 2;
-    if (axis === 'x') {
-      addBox(grooveDepthM, jambWidthM, outerOffset, jambCenter, NORMAL_COLOR);
-      addBox(grooveDepthM, jambWidthM, outerOffset, -jambCenter, NORMAL_COLOR);
-    } else {
-      addBox(jambWidthM, grooveDepthM, jambCenter, outerOffset, NORMAL_COLOR);
-      addBox(jambWidthM, grooveDepthM, -jambCenter, outerOffset, NORMAL_COLOR);
-    }
-
-    // Shadow lip — flush with the core's own face, extending SHADOW_LIP_DEPTH_M outward into the channel, spanning exactly grooveWidthM.
-    const lipInnerAxis = sign * (half - grooveDepthM);
-    const lipCenter = lipInnerAxis + sign * (SHADOW_LIP_DEPTH_M / 2);
-    if (axis === 'x') addBox(SHADOW_LIP_DEPTH_M, grooveWidthM, lipCenter, 0, GROOVE_SHADOW_COLOR);
-    else addBox(grooveWidthM, SHADOW_LIP_DEPTH_M, 0, lipCenter, GROOVE_SHADOW_COLOR);
-  }
-  const merged = mergeGeometries(pieces, false);
-  pieces.forEach((g) => g.dispose());
-  return merged ?? new THREE.BoxGeometry(thicknessM, heightM, thicknessM);
-}
-
-
-
-function easeInOutQuad(t: number) {
-  return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-}
-
-/** Which leg indices changed between two shapes, and whether this kind of change is allowed to reset the viewing angle back to default. Null means nothing in legs/junctions differs (e.g. only color changed). */
-function diffFocusLegs(prev: Shape, next: Shape): { legIndices: number[]; resetAngle: boolean } | null {
-  if (next.legs.length !== prev.legs.length) {
-    const idx = next.legs.length - 1;
-    const added = next.legs.length > prev.legs.length;
-    return {
-      // Adding a leg: frame ONLY the new leg. Including the neighbor too
-      // meant the camera pulled back to fit whichever of the two was
-      // longer — irrelevant to what you actually want to see right after
-      // adding one. Removing a leg has no single "new" leg to isolate, so
-      // that case keeps framing both sides of the removal point for context.
-      legIndices: (added ? [idx] : [idx - 1, idx]).filter((i) => i >= 0 && i < next.legs.length),
-      resetAngle: true, // adding/removing a leg — "return to default" case
-    };
-  }
-  for (let i = 0; i < next.legs.length; i++) {
-    const a = prev.legs[i];
-    const b = next.legs[i];
-    if (a.lengthM !== b.lengthM || a.baseHeightCm !== b.baseHeightCm || a.heightCm !== b.heightCm) {
-      return {
-        legIndices: [i - 1, i, i + 1].filter((idx) => idx >= 0 && idx < next.legs.length),
-        resetAngle: false, // a slider edit on an existing leg — keep the user's current angle
-      };
-    }
-  }
-  for (let i = 0; i < next.junctions.length; i++) {
-    if (prev.junctions[i]?.type !== next.junctions[i]?.type) {
-      return {
-        legIndices: [i, i + 1].filter((idx) => idx >= 0 && idx < next.legs.length),
-        resetAngle: true, // junction direction changed — "return to default" case
-      };
-    }
-  }
-  return null;
-}
 
 export default function Scene({
   shape,
