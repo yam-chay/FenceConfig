@@ -571,7 +571,7 @@ export default function App() {
               className="pill segment-action-btn"
               onClick={addLegAtStart}
             >
-              הוסף רגל בהתחלה +
+              הוסף מקטע בהתחלה +
             </button>
 
             <button
@@ -579,7 +579,7 @@ export default function App() {
               className="pill segment-action-btn"
               onClick={addLeg}
             >
-              הוסף רגל +
+              הוסף מקטע בסוף +
             </button>
 
             {shape.legs.length > 1 && (
@@ -588,7 +588,7 @@ export default function App() {
                 className="pill segment-action-btn"
                 onClick={removeLastLeg}
               >
-                הסר רגל אחרונה -
+                הסר מקטע -
               </button>
             )}
           </div>
