@@ -4,7 +4,7 @@
 // the board/spacer gaps, so fine detail (the groove/step lines between
 // boards) got blurred away entirely. 2048 roughly quarters texel size.
 // Watch FPS on mobile after this change — drop back to 1024 if it tanks.
-export const SHADOW_MAP_SIZE = 2048;
+export const SHADOW_MAP_SIZE = 4096;
 // Extra margin (meters) added around the fence's own bounds when sizing
 // the shadow camera frustum — keeps a board/post near the EDGE of the
 // fence from losing its shadow just because its bounding box was exactly

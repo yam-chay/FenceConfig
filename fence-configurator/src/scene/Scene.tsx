@@ -959,8 +959,19 @@ export default function Scene({
     // MOON_BRIGHTNESS_SCALE folded in by sampleDayNight — the previous
     // version of this block reapplied them here too, silently doubling
     // the scale whenever either constant was set to anything but 1.
-    const sunIntensity = sample.sunIntensity;
-    const moonIntensity = sample.moonIntensity;
+    //
+    // Zeroed out once the body's own geometric position drops below the
+    // ground plane (y <= 0) — sampleDayNight's intensity keyframes are
+    // authored purely against `hour` and aren't synced to
+    // skyDirectionForHour's actual elevation (confirmed: at hour 5.5 the
+    // sun sits at y=-15.66, well underground, while its keyframe
+    // intensity is already 0.55) — without this, a body keeps lighting
+    // the fence for a while after it visually sets, from underground.
+    // Hard cutoff at the horizon, not a fade — if that reads as a pop
+    // while dragging the slider, ease it over a small elevation band
+    // instead of a bare y > 0 check.
+    const sunIntensity = sunDir.y > 0 ? sample.sunIntensity : 0;
+    const moonIntensity = moonDir.y > 0 ? sample.moonIntensity : 0;
 
     // Blend weight toward "moon" — only used for the light's POSITION now.
     // Its color no longer needs a separate blend, since sample.sunColor
