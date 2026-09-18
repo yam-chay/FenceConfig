@@ -2,22 +2,21 @@ import { useEffect, useRef, useState } from 'react';
 import type { Shape } from '../../geometry/shape';
 import type { ColorScheme, ProfileScheme } from '../../scene/Scene';
 
-/**
- * Undo/redo — covers everything in shape + colorScheme (lengths, heights,
- * legs, junctions, post/board colors). Every change to either pushes a
- * new snapshot, except when the change came FROM undo/redo itself
- * (isUndoRedoRef guards against re-recording that as a new step).
- *
- * Also wires the global Ctrl/Cmd+Z / Ctrl/Cmd+Y (or Shift+Z) keyboard
- * shortcuts to undo/redo — kept here rather than in App() since it has no
- * other reason to exist outside this hook and needs a fresh closure over
- * undo/redo on every history change, exactly like the effect below.
- *
- * shape/colorScheme/profileScheme are owned by the caller (App) — this
- * hook only WATCHES them (to record snapshots) and CALLS BACK into the
- * three setters to restore a snapshot on undo/redo. It does not own that
- * state itself.
- */
+type HistoryEntry = {
+  shape: Shape;
+  colorScheme: ColorScheme;
+  profileScheme: ProfileScheme;
+};
+
+type HistoryState = {
+  entries: HistoryEntry[];
+  index: number;
+};
+
+type HistoryTransaction = {
+  initial: HistoryEntry;
+};
+
 export function useHistory(
   shape: Shape,
   colorScheme: ColorScheme,
@@ -25,49 +24,143 @@ export function useHistory(
   setShape: (shape: Shape) => void,
   setColorScheme: (colorScheme: ColorScheme) => void,
   setProfileScheme: (profileScheme: ProfileScheme) => void,
-): { undo: () => void; redo: () => void; canUndo: boolean; canRedo: boolean } {
-  const [history, setHistory] = useState<{
-    entries: { shape: Shape; colorScheme: ColorScheme; profileScheme: ProfileScheme }[];
-    index: number;
-  }>(() => ({ entries: [{ shape, colorScheme, profileScheme }], index: 0 }));
+): {
+  undo: () => void;
+  redo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  beginHistoryTransaction: () => void;
+  commitHistoryTransaction: () => void;
+  cancelHistoryTransaction: () => void;
+} {
+  const [history, setHistory] = useState<HistoryState>(() => ({
+    entries: [{ shape, colorScheme, profileScheme }],
+    index: 0,
+  }));
+
   const isUndoRedoRef = useRef(false);
+  const transactionRef = useRef<HistoryTransaction | null>(null);
+
+  const currentEntry: HistoryEntry = {
+    shape,
+    colorScheme,
+    profileScheme,
+  };
 
   useEffect(() => {
     if (isUndoRedoRef.current) {
       isUndoRedoRef.current = false;
       return;
     }
-    setHistory((h) => {
-      const truncated = h.entries.slice(0, h.index + 1);
-      return { entries: [...truncated, { shape, colorScheme, profileScheme }], index: truncated.length };
+
+    // בזמן transaction לא יוצרים snapshots ביניים
+    if (transactionRef.current) return;
+
+    setHistory((previous) => {
+      const truncated = previous.entries.slice(0, previous.index + 1);
+
+      return {
+        entries: [...truncated, currentEntry],
+        index: truncated.length,
+      };
     });
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shape, colorScheme, profileScheme]);
 
+  function beginHistoryTransaction() {
+    if (transactionRef.current) return;
+
+    transactionRef.current = {
+      initial: {
+        shape,
+        colorScheme,
+        profileScheme,
+      },
+    };
+  }
+
+  function commitHistoryTransaction() {
+    const transaction = transactionRef.current;
+    if (!transaction) return;
+
+    transactionRef.current = null;
+
+    const hasChanged =
+      transaction.initial.shape !== shape ||
+      transaction.initial.colorScheme !== colorScheme ||
+      transaction.initial.profileScheme !== profileScheme;
+
+    if (!hasChanged) return;
+
+    setHistory((previous) => {
+      const truncated = previous.entries.slice(0, previous.index + 1);
+
+      return {
+        entries: [...truncated, currentEntry],
+        index: truncated.length,
+      };
+    });
+  }
+
+  function cancelHistoryTransaction() {
+    const transaction = transactionRef.current;
+    if (!transaction) return;
+
+    transactionRef.current = null;
+
+    isUndoRedoRef.current = true;
+
+    setShape(transaction.initial.shape);
+    setColorScheme(transaction.initial.colorScheme);
+    setProfileScheme(transaction.initial.profileScheme);
+  }
+
   function undo() {
     if (history.index <= 0) return;
+
+    transactionRef.current = null;
+
     const newIndex = history.index - 1;
+    const entry = history.entries[newIndex];
+
     isUndoRedoRef.current = true;
-    setShape(history.entries[newIndex].shape);
-    setColorScheme(history.entries[newIndex].colorScheme);
-    setProfileScheme(history.entries[newIndex].profileScheme);
-    setHistory((h) => ({ ...h, index: newIndex }));
+
+    setShape(entry.shape);
+    setColorScheme(entry.colorScheme);
+    setProfileScheme(entry.profileScheme);
+    setHistory((previous) => ({
+      ...previous,
+      index: newIndex,
+    }));
   }
+
   function redo() {
     if (history.index >= history.entries.length - 1) return;
+
+    transactionRef.current = null;
+
     const newIndex = history.index + 1;
+    const entry = history.entries[newIndex];
+
     isUndoRedoRef.current = true;
-    setShape(history.entries[newIndex].shape);
-    setColorScheme(history.entries[newIndex].colorScheme);
-    setProfileScheme(history.entries[newIndex].profileScheme);
-    setHistory((h) => ({ ...h, index: newIndex }));
+
+    setShape(entry.shape);
+    setColorScheme(entry.colorScheme);
+    setProfileScheme(entry.profileScheme);
+    setHistory((previous) => ({
+      ...previous,
+      index: newIndex,
+    }));
   }
+
   const canUndo = history.index > 0;
   const canRedo = history.index < history.entries.length - 1;
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (!(e.ctrlKey || e.metaKey)) return;
+
       if (e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
         undo();
@@ -76,10 +169,23 @@ export function useHistory(
         redo();
       }
     }
+
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [history]);
 
-  return { undo, redo, canUndo, canRedo };
+  return {
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    beginHistoryTransaction,
+    commitHistoryTransaction,
+    cancelHistoryTransaction,
+  };
 }

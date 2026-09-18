@@ -14,6 +14,8 @@ export function PrecisionSlider({
   onChangeFineValue,
   onTogglePrecision,
   onFineAdjust,
+  onInteractionStart,
+  onInteractionEnd,
   className,
 }: {
   mode: 'length' | 'height';
@@ -33,6 +35,8 @@ export function PrecisionSlider({
    * can suppress side effects (like camera reframing) that make sense for a
    * real drag but not for a tiny precision nudge. */
   onFineAdjust?: () => void;
+  onInteractionStart?: () => void;
+  onInteractionEnd?: () => void;
   className?: string;
 }) {
   const [editorOpen, setEditorOpen] = useState(false);
@@ -195,6 +199,9 @@ export function PrecisionSlider({
         max={max}
         step={step}
         value={coarse}
+        onPointerDown={onInteractionStart}
+        onPointerUp={onInteractionEnd}
+        onPointerCancel={onInteractionEnd}
         onChange={(e) => onChangeValue(Number(e.target.value) + appliedFine)}
       />
       <div className="precision-row">
@@ -209,6 +216,9 @@ export function PrecisionSlider({
               max={fineMax}
               step={fineStep}
               value={fineValue}
+              onPointerDown={onInteractionStart}
+              onPointerUp={onInteractionEnd}
+              onPointerCancel={onInteractionEnd}
               onChange={(e) => setFine(Number(e.target.value))}
             />
             <span className="fine-readout">{fineValue.toFixed(1)} ס״מ</span>

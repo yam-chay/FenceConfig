@@ -52,8 +52,15 @@ export default function App() {
     return map[legIndex] ?? { fine: 0, on: false };
   }
 
-  const { undo, redo, canUndo, canRedo } = useHistory(
-    shape,
+  const {
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    beginHistoryTransaction,
+    commitHistoryTransaction,
+    cancelHistoryTransaction,
+  } = useHistory(shape,
     colorScheme,
     profileScheme,
     setShape,
@@ -490,6 +497,8 @@ export default function App() {
                         onFineAdjust={() => {
                           skipNextFocusRef.current = true;
                         }}
+                        onInteractionStart={beginHistoryTransaction}
+                        onInteractionEnd={commitHistoryTransaction}
                       />
 
                       <PrecisionSlider
@@ -515,6 +524,8 @@ export default function App() {
                         onFineAdjust={() => {
                           skipNextFocusRef.current = true;
                         }}
+                        onInteractionStart={beginHistoryTransaction}
+                        onInteractionEnd={commitHistoryTransaction}
                       />
 
                       {getPrecision(baseHeightPrecision, legIndex).on && leg.baseHeightCm > 0 && (
@@ -536,6 +547,8 @@ export default function App() {
                         leg={leg}
                         boardCount={stats.boardCountByLeg[legIndex] ?? 0}
                         onChangeHeight={(v) => updateLeg(legIndex, (l) => ({ ...l, heightCm: v }))}
+                        onInteractionStart={beginHistoryTransaction}
+                        onInteractionEnd={commitHistoryTransaction}
                       />
                     </>
                   )}

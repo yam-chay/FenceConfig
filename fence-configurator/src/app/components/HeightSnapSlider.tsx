@@ -27,11 +27,15 @@ export function HeightSnapSlider({
   leg,
   boardCount,
   onChangeHeight,
+  onInteractionStart,
+  onInteractionEnd,
 }: {
   label: string;
   leg: Leg;
   boardCount: number;
   onChangeHeight: (heightCm: number) => void;
+onInteractionStart?: () => void;
+onInteractionEnd?: () => void;
 }) {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorValue, setEditorValue] = useState('0');
@@ -117,6 +121,9 @@ export function HeightSnapSlider({
         max={CEIL_CM}
         step={1}
         value={leg.heightCm}
+        onPointerDown={onInteractionStart}
+        onPointerUp={onInteractionEnd}
+        onPointerCancel={onInteractionEnd}
         onChange={(e) => onChangeHeight(Number(e.target.value))}
       />
     </div>
