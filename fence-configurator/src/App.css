@@ -54,7 +54,7 @@
 }
 
 .panel {
-  width: 320px;
+  width: 350px;
   padding: 20px;
   background: #fafafa;
   border-inline-start: 1px solid #e2e2e2;
@@ -104,7 +104,7 @@
   }
 
   .panel-scroll {
-    padding: 20px;
+    padding: 10px;
   }
 }
 
@@ -230,7 +230,6 @@
   align-items: center;
   font-size: 13px;
   font-weight: 600;
-  margin-bottom: 10px;
   color: var(--brand-secondary);
 }
 
@@ -246,13 +245,13 @@
 
 .segment-header-toggle:hover {
   color: var(--brand-primary);
+  font-weight: 700;
 }
 
 .segment-summary {
   font-size: 12px;
   font-weight: 400;
   color: var(--text-muted);
-  margin-inline: 10px;
 }
 
 .segment-caret {
@@ -414,9 +413,29 @@
 
 .segment-actions {
   display: flex;
+  align-items: center;
+  justify-content: center;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 5px;
+  direction: rtl;
   margin-top: 6px;
+  margin-bottom: 6px;
+}
+
+.segment-actions .segment-action-btn {
+  padding: 4px 10px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.segment-actions .segment-action-btn:hover {
+  background: var(--brand-primary);
+  color: #fff;
+  border-color: var(--brand-primary);
+}
+
+.segment-actions .segment-action-btn:active {
+  transform: scale(0.97);
 }
 
 .text-btn {

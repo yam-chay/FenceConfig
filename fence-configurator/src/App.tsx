@@ -61,11 +61,11 @@ export default function App() {
     setProfileScheme,
   );
 
- function handleDragStart(e: React.PointerEvent<HTMLDivElement>) {
+  function handleDragStart(e: React.PointerEvent<HTMLDivElement>) {
     e.preventDefault(); // stops the browser starting a text-selection drag
     dragStartRef.current = { startY: e.clientY, startHeight: sheetHeight };
     e.currentTarget.setPointerCapture(e.pointerId);
-  }  function handleDragMove(e: React.PointerEvent<HTMLDivElement>) {
+  } function handleDragMove(e: React.PointerEvent<HTMLDivElement>) {
     if (!dragStartRef.current) return;
     // Sheet is anchored to the bottom, so dragging DOWN (positive delta) shrinks it.
     const delta = e.clientY - dragStartRef.current.startY;
@@ -92,6 +92,7 @@ export default function App() {
     updateLegLength,
     setJunction,
     addLeg,
+    addLegAtStart,
     removeLastLeg,
     setPostColor,
     addColorRule,
@@ -164,7 +165,7 @@ export default function App() {
             timeOfDayHours={timeOfDayHours}
           />
 
-           <div style={{ position: 'absolute', left: 12, bottom: 12, zIndex: 5 }}>
+          <div style={{ position: 'absolute', left: 12, bottom: 12, zIndex: 5 }}>
             <CircularTimeSlider hours={timeOfDayHours} onChange={setTimeOfDayHours} />
           </div>
           <div className="stats-badge">
@@ -521,7 +522,7 @@ export default function App() {
                           <span className="value-trigger">רוחב חומה: {formatTrimmed(leg.wallWidthCm, 1)} ס״מ</span>
                           <input
                             type="range"
-                            min={POST_THICKNESS_CM * POST_ACCESSORY_WIDTH_MULTIPLIER} // can't be narrower than the rosette sitting on top of it
+                            min={Math.max(20, POST_THICKNESS_CM * POST_ACCESSORY_WIDTH_MULTIPLIER)} // 20cm product default floor, but never narrower than the rosette sitting on top of it
                             max={Math.max(40, POST_THICKNESS_CM * POST_ACCESSORY_WIDTH_MULTIPLIER * 2)} // placeholder ceiling — ask the client for a real range
                             step={0.5}
                             value={leg.wallWidthCm}
@@ -565,12 +566,29 @@ export default function App() {
           })}
 
           <div className="segment-actions">
-            <button className="text-btn" onClick={addLeg}>
-              + הוסף רגל
+            <button
+              type="button"
+              className="pill segment-action-btn"
+              onClick={addLegAtStart}
+            >
+              הוסף רגל בהתחלה +
             </button>
+
+            <button
+              type="button"
+              className="pill segment-action-btn"
+              onClick={addLeg}
+            >
+              הוסף רגל +
+            </button>
+
             {shape.legs.length > 1 && (
-              <button className="text-btn" onClick={removeLastLeg}>
-                − הסר רגל אחרונה
+              <button
+                type="button"
+                className="pill segment-action-btn"
+                onClick={removeLastLeg}
+              >
+                הסר רגל אחרונה -
               </button>
             )}
           </div>

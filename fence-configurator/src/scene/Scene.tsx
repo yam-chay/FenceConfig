@@ -1196,7 +1196,7 @@ export default function Scene({
         flyTo(
           {
             centerX: currentTarget.x,
-            centerY: currentTarget.y + heightDeltaM * 0.18,
+            centerY: currentTarget.y + heightDeltaM * 5,
             centerZ: currentTarget.z,
             radius: shapeBoundsRef.current.radius,
           },

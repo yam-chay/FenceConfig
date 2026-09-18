@@ -136,6 +136,65 @@ export function useFenceEditor(
     setExpandedLegIndices(new Set([lastLegIndex + 1]));
   }
 
+  // Symmetric to addLeg(), but at the FRONT — "start the fence from the
+  // middle" use case. The tricky part: prepending shifts every EXISTING
+  // leg's index by +1, but every stored field-scoped rule (color/profile/
+  // spacer) carries a plain legIndex NUMBER, not a stable identity — so
+  // every one of them has to be re-pointed to legIndex+1 too, BEFORE the
+  // shape itself changes, or a rule that said "leg 2" would silently keep
+  // saying "leg 2" while leg 2 is now a completely different physical leg.
+  // Global-scoped rules are untouched — they were never leg-specific.
+  //
+  // Known gap, not handled here yet: per-leg UI-only state that isn't
+  // routed through this hook — lengthPrecision/baseHeightPrecision (fine-
+  // adjustment toggles, live in App.tsx) and the current `selection` — can
+  // end up pointing at the wrong leg after a prepend. Cosmetic, not data
+  // loss (nothing here can corrupt geometry beyond a stale fine-precision
+  // readout), but real; flag if it needs fixing too.
+  function addLegAtStart() {
+    setColorScheme((prev) => ({
+      ...prev,
+      boardRules: prev.boardRules.map((r) => (r.scope === 'field' ? { ...r, legIndex: r.legIndex! + 1 } : r)),
+    }));
+    setProfileScheme((prev) => ({
+      ...prev,
+      rules: prev.rules.map((r) => (r.scope === 'field' ? { ...r, legIndex: r.legIndex! + 1 } : r)),
+      spacerRules: prev.spacerRules.map((r) => (r.scope === 'field' ? { ...r, legIndex: r.legIndex! + 1 } : r)),
+    }));
+
+    setShape((prev) => {
+      const first = prev.legs[0];
+      return {
+        legs: [
+          {
+            lengthM: 3,
+            baseHeightCm: first.baseHeightCm,
+            heightCm: first.heightCm,
+            modelId: first.modelId,
+            sizeId: first.sizeId,
+            wallWidthCm: first.wallWidthCm,
+          },
+          ...prev.legs,
+        ],
+        junctions: [{ type: 'straight' }, ...prev.junctions],
+      };
+    });
+    // Mirrors addLeg(): the new leg's fields inherit the pattern of the
+    // field they extend INTO — what was field 0 of what was leg 0, which
+    // is now leg 1 (its own rules were just shifted to legIndex+1 above,
+    // so this agrees with that same post-prepend numbering). The new
+    // leg's own start is a true shape end (nothing before it) and its
+    // end is a middle post (about to be joined to the old leg 0 by the
+    // 'straight' junction above) — can't use fieldCountForLegAt here
+    // since this leg doesn't exist in `shape` yet.
+    const newLegFieldCount = fieldCountForLeg(3, false, true);
+    const newIndexes: number[] = [];
+    for (let f = 0; f < newLegFieldCount; f++) newIndexes.push(f);
+    cloneFieldProfileRules(1, 0, 0, newIndexes);
+    // Same "accordion, not a pile-up" behavior as addLeg().
+    setExpandedLegIndices(new Set([0]));
+  }
+
   function removeLastLeg() {
     const removedIndex = shape.legs.length - 1;
     setShape((prev) => {
@@ -336,6 +395,10 @@ export function useFenceEditor(
         (r) => !(r.scope === 'field' && r.legIndex === legIndex && r.fieldIndex === fieldIndex),
       ),
     }));
+    // Color rules were never cleared here originally — a field with ONLY a
+    // color customization (no profile/spacer rule) silently kept its color
+    // after "restore default", and the button stayed disabled for it too
+    // (see selectedFieldHasCustomizations in App.tsx). Both fixed together.
     setColorScheme((prev) => ({
       ...prev,
       boardRules: prev.boardRules.filter(
@@ -466,6 +529,7 @@ export function useFenceEditor(
     updateLegLength,
     setJunction,
     addLeg,
+    addLegAtStart,
     removeLastLeg,
     setPostColor,
     addColorRule,

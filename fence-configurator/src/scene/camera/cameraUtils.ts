@@ -2,8 +2,8 @@ import { VIEW_DIRECTION } from '../constants';
 
 export const DEFAULT_POLAR = Math.acos(VIEW_DIRECTION.y);
 export const DEFAULT_AZIMUTH = Math.atan2(VIEW_DIRECTION.x, VIEW_DIRECTION.z);
-export const AZIMUTH_RANGE = Math.PI / 2; // full horizontal rotation — polar stays locked below
-export const POLAR_RANGE = (15 * Math.PI) / 90;
+export const AZIMUTH_RANGE = Infinity; // full horizontal rotation — polar stays locked below
+export const POLAR_RANGE = (45 * Math.PI) / 180;
 export const ZOOM_IN_FACTOR = 0.55;
 export const ZOOM_OUT_FACTOR = 1.7;
 export const FLY_DURATION_MS = 600;

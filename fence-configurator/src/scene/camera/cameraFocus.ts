@@ -1,17 +1,42 @@
-import type { Shape } from '../../geometry/shape';
+import type { Shape, Leg } from '../../geometry/shape';
+
+/** Structural equality on every field that actually changes a leg's own geometry/rendering — used to tell an appended leg from a prepended one (see diffFocusLegs) by checking whether the EXISTING legs still line up unchanged from the front (append) or only from offset 1 (prepend). */
+function legsEqual(a: Leg, b: Leg): boolean {
+  return (
+    a.lengthM === b.lengthM &&
+    a.baseHeightCm === b.baseHeightCm &&
+    a.heightCm === b.heightCm &&
+    a.modelId === b.modelId &&
+    a.sizeId === b.sizeId &&
+    a.wallWidthCm === b.wallWidthCm
+  );
+}
 
 /** Which leg indices changed between two shapes, and whether this kind of change is allowed to reset the viewing angle back to default. Null means nothing in legs/junctions differs (e.g. only color changed). */
 export function diffFocusLegs(prev: Shape, next: Shape): { legIndices: number[]; resetAngle: boolean } | null {
   if (next.legs.length !== prev.legs.length) {
-    const idx = next.legs.length - 1;
     const added = next.legs.length > prev.legs.length;
+
+    if (added) {
+      // A new leg lands either at the END (addLeg — every existing leg
+      // still lines up unchanged from the front) or at the START
+      // (addLegAtStart — every existing leg shifted by one position, so
+      // it only lines up from offset 1). Checked structurally rather
+      // than assumed, so this stays correct regardless of which button
+      // triggered it.
+      const isPrepend = prev.legs.length > 0 && prev.legs.every((leg, i) => legsEqual(leg, next.legs[i + 1]));
+      if (isPrepend) {
+        return { legIndices: [0], resetAngle: true };
+      }
+      const idx = next.legs.length - 1;
+      return { legIndices: [idx], resetAngle: true };
+    }
+
+    // Removing a leg has no single "new" leg to isolate, so that case
+    // keeps framing both sides of the removal point for context.
+    const idx = next.legs.length - 1;
     return {
-      // Adding a leg: frame ONLY the new leg. Including the neighbor too
-      // meant the camera pulled back to fit whichever of the two was
-      // longer — irrelevant to what you actually want to see right after
-      // adding one. Removing a leg has no single "new" leg to isolate, so
-      // that case keeps framing both sides of the removal point for context.
-      legIndices: (added ? [idx] : [idx - 1, idx]).filter((i) => i >= 0 && i < next.legs.length),
+      legIndices: [idx - 1, idx].filter((i) => i >= 0 && i < next.legs.length),
       resetAngle: true, // adding/removing a leg — "return to default" case
     };
   }

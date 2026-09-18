@@ -65,8 +65,16 @@ export function usePanelState(selection: Selection | null) {
     setExpandedLegIndices((prev) => (prev.has(legIndex) ? prev : new Set(prev).add(legIndex)));
     if (lastAutoScrolledLegRef.current !== legIndex) {
       lastAutoScrolledLegRef.current = legIndex;
+      // Double rAF, not single: a single frame isn't guaranteed to land
+      // AFTER the setExpandedLegIndices update above has been committed
+      // and painted — the accordion could still be at its OLD (collapsed)
+      // height when scrollIntoView computes its target, landing short.
+      // The first frame waits out the current paint; the second waits out
+      // the one that actually reflects the newly-expanded layout.
       requestAnimationFrame(() => {
-        legRefs.current[legIndex]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        requestAnimationFrame(() => {
+          legRefs.current[legIndex]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        });
       });
     }
   }, [selection]);
