@@ -74,3 +74,20 @@ export interface SpacerRule {
   legIndex?: number;
   fieldIndex?: number;
 }
+
+/** A camera framing target — world-space center + a radius to fit in view. Shared between geometry (which computes real bounds from the built meshes) and camera (which flies to/frames these targets). */
+export interface FrameTarget {
+  centerX: number;
+  centerY: number;
+  centerZ: number;
+  radius: number;
+}
+
+/** One leg's world-space footprint, accumulated while building its posts/fields — used both for the initial full-shape framing and for per-leg camera focus (opening an accordion tab). */
+export interface LegBounds {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+  topM: number;
+}
