@@ -16,7 +16,7 @@ export const CLOUD_ELEVATION_JITTER_M = 10;
 // fully random azimuth within this span (not an even index-based step),
 // which is what actually spreads them apart instead of clustering them
 // together.
-export const CLOUD_AZIMUTH_SPAN_DEG = 200;
+export const CLOUD_AZIMUTH_SPAN_DEG = 360;
 // Slow drift — a full 360° loop takes (360 / this) seconds, ≈12 minutes
 // at this value. Purely time-driven (performance.now()), NOT tied to
 // timeOfDayHours — only cloud COLOR is tied to the hour, not position.
