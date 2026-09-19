@@ -9,7 +9,7 @@ export const ZOOM_OUT_FACTOR = 1.7;
 export const FLY_DURATION_MS = 600;
 export const CLICK_MOVE_THRESHOLD_PX = 6;
 export const FOCUS_ELEMENT_PADDING = 1.15; // close zoom-in when selecting a step/post — tight enough to actually see it without manual zooming
-export const FOCUS_EDIT_PADDING = 1.3; // recent-edit window: closer than full-shape, looser than a single element — reused for the deselect case too
+export const FOCUS_EDIT_PADDING = 1.6; // recent-edit window: closer than full-shape, looser than a single element — reused for the deselect case too
 export const FULL_SHAPE_PADDING = 1.35;
 
 export function easeInOutQuad(t: number) {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fieldCountForLeg, layoutShape, Shape } from './shape';
+import { fieldCountForLeg, layoutShape, type Shape } from './shape';
 import golden from './__fixtures__/golden.json';
 
 /**

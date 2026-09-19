@@ -1,20 +1,26 @@
-﻿import { ROSETTE_OFFSET_CM } from './constants';
+import { ROSETTE_OFFSET_CM } from './constants';
+import { resolveClosure, type SpacerBumpCapacity } from './closure';
 
-/** Resolved dims for ONE board ג€” modelId/sizeId travel with it so the caller can react (styling, selection) without a second lookup. */
+/** Resolved dims for ONE board — modelId/sizeId travel with it so the caller can react (styling, selection) without a second lookup. */
 export interface ResolvedBoardDims {
   modelId: string;
   sizeId: string;
   boardHeightCm: number;
+  /** Already multiplied — what actually gets placed. */
   spacerHeightCm: number;
+  /** Unmultiplied catalog spacer. Tells closure what one ×1→×2 widening is worth. */
+  baseSpacerHeightCm?: number;
+  /** The multiplier baked into spacerHeightCm. Closure only widens steps still at the ×1 default. */
+  spacerMultiplier?: number;
 }
 
 export interface StackedBoard {
-  /** Vertical center offset (cm, from post base) ג€” feeds mesh placement. */
+  /** Vertical center offset (cm, from post base) — feeds mesh placement. */
   centerCm: number;
-  /** Position in the bottom-up stacking order (0 = bottom board). This is what profile rules key on: it's just the walk's loop counter, trivially known BEFORE the board's own type is resolved ג€” unlike any height-based key, which depends on the board's own (not-yet-known) type and caused rules to silently miss. */
+  /** Bottom-up stacking order (0 = bottom). What profile rules key on — the walk's own loop counter, known before the board's type is. */
   stepIndex: number;
   boardHeightCm: number;
-  /** Spacer BELOW this board, i.e. between it and the previous board. 0 for the first board ג€” there's nothing under it to space from. */
+  /** Spacer BELOW this board. 0 for the first — nothing under it to space from. */
   spacerBelowCm: number;
   modelId: string;
   sizeId: string;
@@ -22,36 +28,27 @@ export interface StackedBoard {
 
 export interface BoardStack {
   boards: StackedBoard[];
-  /** The actual filled height achieved (may be slightly less than requested ג€” boards are a fixed size, never cut). */
+  /** Height actually filled. Falls short of the closing height only when nothing in the catalog closes the remainder exactly. */
   filledHeightCm: number;
 }
 
 /**
- * Walks bottom-up from the rosette offset, resolving EACH step's type via
- * `resolveDims` before placing it, and stops once NONE of that step's
- * candidates fit under the closing height itself ג€” confirmed there is NO
- * reserved top margin (the only vertical margin at all is the rosette
- * offset at the bottom; see constants.ts).
+ * Two phases.
  *
- * `resolveDims` returns an ORDERED LIST of candidates, not a single fixed
- * one: the first one that fits under the ceiling is placed. This is what
- * lets a small leftover gap (e.g. from changing baseHeightCm after the
- * closing height was already set) get closed automatically with a
- * narrower catalog size, the same way a manual per-step override already
- * can ג€” see Scene.tsx's resolveBoardStepCandidates, which returns a
- * single candidate (no fallback) for an explicit rule, respecting a
- * deliberate manual choice even where it doesn't fit, or the leg's
- * default plus narrower same-model alternates when no rule applies. For a
- * resolver that always returns one candidate, this reproduces the
- * original single-type floor behavior exactly (boards never cut, so any
- * leftover space simply sits unfilled just below the closing height).
+ * PHASE 1 packs as many PRIMARY boards as fit — the leg's own model/size,
+ * or an explicit per-step rule. No substitution at all here, so the body
+ * of the column is always one deliberate profile.
  *
- * `resolveDims` is keyed by STEP INDEX, not height. Index is the loop
- * counter itself ג€” fully known before the board's type is ג€” so there is no
- * circular dependency and no floating-point matching anywhere in profile
- * resolution. Height-based keying was tried twice and both variants had the
- * same root flaw: any height key ultimately depends on board types, which
- * is exactly what the key is supposed to determine.
+ * PHASE 2 hands whatever is left to resolveClosure, which searches every
+ * catalog combination for a plan that closes it EXACTLY, preferring
+ * widened spacers over an extra board and the column's own model over a
+ * foreign one. The old code instead took the largest candidate that fit at
+ * each step and never reconsidered — which is why the top board changed
+ * model every 1-2 cm of slider travel and sibling fields could disagree.
+ *
+ * When no exact plan exists the remainder is left exposed rather than
+ * approximated: under ~1 cm the cap covers it, and an even top line across
+ * the fence matters more than the last few millimetres.
  */
 export function computeBoardStack(
   totalHeightCm: number,
@@ -59,33 +56,81 @@ export function computeBoardStack(
 ): BoardStack {
   const ceilingCm = totalHeightCm;
   const boards: StackedBoard[] = [];
+  /** Parallel to `boards` — closure bookkeeping, deliberately kept out of the public StackedBoard shape. */
+  const spacerInfo: { base: number; multiplier: number }[] = [];
   let cursor = ROSETTE_OFFSET_CM;
-  let stepIndex = 0;
 
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const candidates = resolveDims(stepIndex);
-    let placed: StackedBoard | null = null;
+  function place(dims: ResolvedBoardDims) {
+    const spacer = dims.spacerHeightCm;
+    boards.push({
+      centerCm: cursor + spacer + dims.boardHeightCm / 2,
+      stepIndex: boards.length,
+      boardHeightCm: dims.boardHeightCm,
+      spacerBelowCm: spacer,
+      modelId: dims.modelId,
+      sizeId: dims.sizeId,
+    });
+    spacerInfo.push({
+      base: dims.baseSpacerHeightCm ?? dims.spacerHeightCm,
+      multiplier: dims.spacerMultiplier ?? 1,
+    });
+    cursor += spacer + dims.boardHeightCm;
+  }
 
-    for (const dims of candidates) {
-      const spacer = dims.spacerHeightCm;
-      const top = cursor + spacer + dims.boardHeightCm;
-      if (top > ceilingCm) continue;
-      placed = {
-        centerCm: cursor + spacer + dims.boardHeightCm / 2,
-        stepIndex,
-        boardHeightCm: dims.boardHeightCm,
-        spacerBelowCm: spacer,
-        modelId: dims.modelId,
-        sizeId: dims.sizeId,
-      };
-      cursor = top;
-      break;
+  /** Re-derives every center from the bottom after spacers change. */
+  function reflow() {
+    let c = ROSETTE_OFFSET_CM;
+    for (const b of boards) {
+      c += b.spacerBelowCm;
+      b.centerCm = c + b.boardHeightCm / 2;
+      c += b.boardHeightCm;
     }
+    cursor = c;
+  }
 
-    if (!placed) break;
-    boards.push(placed);
-    stepIndex++;
+  // --- Phase 1: primaries only ---
+  for (let stepIndex = 0; ; stepIndex++) {
+    const primary = resolveDims(stepIndex)[0];
+    if (!primary) break;
+    if (cursor + primary.spacerHeightCm + primary.boardHeightCm > ceilingCm) break;
+    place(primary);
+  }
+
+  // --- Phase 2: close the remainder ---
+  const remainingCm = ceilingCm - cursor;
+  if (remainingCm > 0 && boards.length > 0) {
+    // Step 0's gap sits against the rosette and is never touched here; a
+    // step the user set explicitly (multiplier ≠ 1) is left alone too.
+    const capacityBySize = new Map<number, number>();
+    for (let i = 1; i < boards.length; i++) {
+      const info = spacerInfo[i];
+      if (info.multiplier !== 1 || info.base <= 0) continue;
+      capacityBySize.set(info.base, (capacityBySize.get(info.base) ?? 0) + 1);
+    }
+    const capacity: SpacerBumpCapacity[] = [...capacityBySize].map(([addCm, available]) => ({
+      addCm,
+      available,
+    }));
+
+    const top = boards[boards.length - 1];
+    const plan = resolveClosure(remainingCm, capacity, top.modelId, top.sizeId);
+
+    if (plan) {
+      // Widen from the top down: a wider gap just under the cap reads as
+      // part of the cap detail, where the eye is least likely to measure it.
+      for (const bump of plan.bumps) {
+        let left = bump.count;
+        for (let i = boards.length - 1; i >= 1 && left > 0; i--) {
+          const info = spacerInfo[i];
+          if (info.multiplier !== 1 || info.base !== bump.addCm) continue;
+          boards[i].spacerBelowCm += bump.addCm;
+          info.multiplier = 2;
+          left--;
+        }
+      }
+      reflow();
+      for (const dims of plan.boards) place(dims);
+    }
   }
 
   return { boards, filledHeightCm: cursor };

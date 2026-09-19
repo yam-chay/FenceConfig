@@ -126,6 +126,8 @@ export function resolveBoardStepCandidates(
     sizeId,
     boardHeightCm: primaryDims.boardHeightCm,
     spacerHeightCm: primaryDims.spacerHeightCm * spacerMultiplier,
+    baseSpacerHeightCm: primaryDims.spacerHeightCm,
+    spacerMultiplier,
   };
 
   if (fromRule) return [primary];
@@ -154,6 +156,8 @@ export function resolveBoardStepCandidates(
         sizeId: size.id,
         boardHeightCm: size.boardHeightCm,
         spacerHeightCm: size.spacerHeightCm * opt.value,
+        baseSpacerHeightCm: size.spacerHeightCm,
+        spacerMultiplier: opt.value,
       })),
     ),
   ).sort((a, b) => b.boardHeightCm + b.spacerHeightCm - (a.boardHeightCm + a.spacerHeightCm));

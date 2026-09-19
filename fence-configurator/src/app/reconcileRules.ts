@@ -119,6 +119,7 @@ export function reconcileRules(
   let profile = profileScheme;
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
+    if (round === MAX_ROUNDS - 1) console.warn('reconcile did NOT converge');
     const heightMap = buildHeightMap(shape, profile);
     const boardRules = remapRules(color.boardRules, heightMap);
     const rules = remapRules(profile.rules, heightMap);
@@ -138,3 +139,4 @@ export function reconcileRules(
 function sameRules<T>(a: T[], b: T[]): boolean {
   return a.length === b.length && a.every((r, i) => r === b[i]);
 }
+
