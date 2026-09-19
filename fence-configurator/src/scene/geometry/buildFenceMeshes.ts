@@ -246,9 +246,12 @@ export function buildFenceMeshes(
     );
 
     rosetteMesh.rotation.y = -post.heading;
-    rosetteMesh.userData.kind = 'rosette';
-    fenceGroup.add(rosetteMesh);
-    rosetteMesh.userData.kind = 'rosette';
+    rosetteMesh.userData.kind = 'post';
+    rosetteMesh.userData.part = 'rosette';
+    rosetteMesh.userData.focusY = baseM + heightM / 2;
+    rosetteMesh.userData.focusRadius = heightM / 2;
+    rosetteMesh.castShadow = true;
+    rosetteMesh.receiveShadow = true;
     fenceGroup.add(rosetteMesh);
 
     // Cap: flat plastic cover sealing the post's grooves at the top so
@@ -263,7 +266,12 @@ export function buildFenceMeshes(
     const capMesh = new THREE.Mesh(capGeo, capDisplayMat);
     capMesh.position.set(post.position.x, baseM + heightM + capHeightM / 2, post.position.z);
     capMesh.rotation.y = -post.heading;
-    capMesh.userData.kind = 'cap';
+    capMesh.userData.kind = 'post';
+    capMesh.userData.part = 'cap';
+    capMesh.userData.focusY = baseM + heightM / 2;
+    capMesh.userData.focusRadius = heightM / 2;
+    capMesh.castShadow = true;
+    capMesh.receiveShadow = true;
     fenceGroup.add(capMesh);
 
     // The post sits at mergedBaseHeightCm = MIN of its two legs' base
@@ -409,6 +417,18 @@ export function buildFenceMeshes(
       );
       wallMesh.rotation.y = -field.heading;
       wallMesh.userData.kind = 'wall';
+      wallMesh.userData.legIndex = field.legIndex;
+      wallMesh.userData.fieldIndex = field.index;
+      // Framing target for a wall click: the FIELD's own column (wall +
+      // the board stack above it), centered on the field — not on the
+      // wall mesh, which is shifted by wallCenterOffsetM at ends and
+      // height-changing junctions.
+      wallMesh.userData.focus = {
+        centerX: field.position.x,
+        centerY: (baseM + field.fillHeightCm / 100) / 2,
+        centerZ: field.position.z,
+        radius: Math.max(Math.sqrt(field.lengthM ** 2 + (baseM + field.fillHeightCm / 100) ** 2) / 2, 0.5),
+      };
       wallMesh.castShadow = true;
       wallMesh.receiveShadow = true;
       fenceGroup.add(wallMesh);

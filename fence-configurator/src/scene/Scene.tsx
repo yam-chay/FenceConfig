@@ -611,7 +611,7 @@ export default function Scene({
       }
 
       const mesh = hits[0].object as THREE.Mesh;
-      const kind = mesh.userData.kind as 'post' | 'board' | undefined;
+      const kind = mesh.userData.kind as 'post' | 'board' | 'wall' | undefined;
 
       if (kind === 'post') {
         onSelectRef.current?.({ kind: 'post' });
@@ -619,14 +619,28 @@ export default function Scene({
         if (!isMobileViewport()) {
           mesh.geometry.computeBoundingSphere();
           const sphere = mesh.geometry.boundingSphere;
-          const radius = Math.max(sphere ? sphere.radius : 0.3, 0.25);
+          // An accessory mesh (cap/rosette) carries the POST's own center
+          // and radius — without them the camera would frame the tiny
+          // accessory instead of the post the click actually selected.
+          const focusRadius = mesh.userData.focusRadius as number | undefined;
+          const focusY = mesh.userData.focusY as number | undefined;
+          const radius = Math.max(focusRadius ?? (sphere ? sphere.radius : 0.3), 0.25);
           flyTo(
-            { centerX: mesh.position.x, centerY: mesh.position.y, centerZ: mesh.position.z, radius },
+            { centerX: mesh.position.x, centerY: focusY ?? mesh.position.y, centerZ: mesh.position.z, radius },
             FOCUS_ELEMENT_PADDING,
             { preserveAngle: true },
           );
         }
 
+        return;
+      }
+      if (kind === 'wall') {
+        // A wall click NEVER touches the selection — it must not eject
+        // you from an open edit/focus state. With something selected
+        // it's inert; with nothing selected it frames the field the
+        // wall belongs to, as a navigation aid.
+        const focus = mesh.userData.focus as FrameTarget | undefined;
+        if (focus) flyTo(focus, FOCUS_EDIT_PADDING, { preserveAngle: true });        
         return;
       }
       if (kind !== 'board') {
