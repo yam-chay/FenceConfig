@@ -488,6 +488,15 @@ export default function App() {
                         onInteractionEnd={commitHistoryTransaction}
                       />
 
+                      <HeightSnapSlider
+                        label="גובה גדר"
+                        leg={leg}
+                        boardCount={stats.boardCountByLeg[legIndex] ?? 0}
+                        onChangeHeight={(v) => updateLeg(legIndex, (l) => ({ ...l, heightCm: v }))}
+                        onInteractionStart={beginHistoryTransaction}
+                        onInteractionEnd={commitHistoryTransaction}
+                      />
+
                       <PrecisionSlider
                         mode="height"
                         className="leg-row base-height-row"
@@ -528,15 +537,6 @@ export default function App() {
                           />
                         </div>
                       )}
-
-                      <HeightSnapSlider
-                        label="גובה גדר"
-                        leg={leg}
-                        boardCount={stats.boardCountByLeg[legIndex] ?? 0}
-                        onChangeHeight={(v) => updateLeg(legIndex, (l) => ({ ...l, heightCm: v }))}
-                        onInteractionStart={beginHistoryTransaction}
-                        onInteractionEnd={commitHistoryTransaction}
-                      />
                     </>
                   )}
                 </div>

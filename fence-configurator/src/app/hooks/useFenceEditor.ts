@@ -4,6 +4,7 @@ import type { Shape, Leg, Junction } from '../../geometry/shape';
 import { fieldCountForLeg } from '../../geometry/shape';
 import { computeBoardStack } from '../../geometry/field';
 import { DEFAULT_MODEL_ID, DEFAULT_SIZE_ID } from '../../geometry/catalog';
+import { reconcileRules, HEIGHT_MAP_TOLERANCE_CM } from '../reconcileRules';
 import type { ColorScheme, ProfileScheme, Selection, BoardColorRule, BoardProfileRule, SpacerRule } from '../../scene/Scene';
 import {
   resolveBoardColorHex,
@@ -59,10 +60,13 @@ export function useFenceEditor(
   const undoPulseTimeoutRef = useRef<number | null>(null);
 
   function updateLeg(legIndex: number, updater: (leg: Leg) => Leg) {
-    setShape((prev) => ({
-      ...prev,
-      legs: prev.legs.map((leg, i) => (i === legIndex ? updater(leg) : leg)),
-    }));
+    // Built as a value rather than an updater so the NEXT shape can be
+    // handed to reconcileFor — inside setShape's updater it isn't
+    // available yet. Both setters run in the same handler, so React
+    // batches them into one render and one history entry.
+    const next = { ...shape, legs: shape.legs.map((leg, i) => (i === legIndex ? updater(leg) : leg)) };
+    setShape(next);
+    reconcileFor(next);
   }
 
   // Which of this leg's own two ends is a shared "middle" post (boards
@@ -77,24 +81,29 @@ export function useFenceEditor(
     return fieldCountForLeg(lengthM, startIsMiddle, endIsMiddle);
   }
 
-  // Fan-out targets for any rule write: just the clicked field, or every
-  // field in the shape when "apply to all fields" is on. ALWAYS
-  // field-scoped — a single 'global' rule carries no legIndex/fieldIndex,
-  // so clearFieldProfile can never find it and the restore button can
-  // never even light up for it. That was the whole bug.
+  // Fan-out targets for one rule write. The clicked field keeps the step
+  // the user actually clicked; every other field gets the step sitting at
+  // the same ABSOLUTE HEIGHT in its own stack — which is what makes a
+  // painted band stay level across fields on different wall heights,
+  // instead of climbing with the wall the way step-index copying did.
   function ruleTargets(
     legIndex: number,
     fieldIndex: number,
-  ): { legIndex: number; fieldIndex: number; derived?: true }[] {
-    if (!applyToAllFields) return [{ legIndex, fieldIndex }];
-    const refs: { legIndex: number; fieldIndex: number; derived?: true }[] = [];
+    stepIndex: number,
+  ): { legIndex: number; fieldIndex: number; stepIndex: number; derived?: true }[] {
+    if (!applyToAllFields) return [{ legIndex, fieldIndex, stepIndex }];
+    const anchorHeightCm = anchorFor(stepIndex);
+    const refs: { legIndex: number; fieldIndex: number; stepIndex: number; derived?: true }[] = [];
     shape.legs.forEach((leg, li) => {
       const count = fieldCountForLegAt(li, leg.lengthM);
       for (let fi = 0; fi < count; fi++) {
-        // The field the user actually clicked keeps an absolute rule;
-        // every other field gets a derived (advisory) copy.
-        const clicked = li === legIndex && fi === fieldIndex;
-        refs.push(clicked ? { legIndex: li, fieldIndex: fi } : { legIndex: li, fieldIndex: fi, derived: true });
+        if (li === legIndex && fi === fieldIndex) {
+          refs.push({ legIndex: li, fieldIndex: fi, stepIndex });
+          continue;
+        }
+        const mapped = stepIndexAtHeight(li, fi, anchorHeightCm);
+        if (mapped === null) continue;
+        refs.push({ legIndex: li, fieldIndex: fi, stepIndex: mapped, derived: true });
       }
     });
     return refs;
@@ -103,6 +112,33 @@ export function useFenceEditor(
   function anchorFor(stepIndex: number): number {
     if (selection?.kind !== 'board') return 0;
     return selection.stepHeights[stepIndex] ?? selection.heightCm;
+  }
+
+  // Which step in THIS field currently sits closest to a given absolute
+  // height. Null when nothing is within tolerance — that field simply has
+  // no board there, so it gets no rule at all rather than a wrong one.
+  function stepIndexAtHeight(legIndex: number, fieldIndex: number, anchorHeightCm: number): number | null {
+    const leg = shape.legs[legIndex];
+    if (!leg) return null;
+    const stack = computeBoardStack(leg.heightCm - leg.baseHeightCm, (i) =>
+      resolveBoardStepCandidates(profileScheme, legIndex, fieldIndex, i, leg.modelId, leg.sizeId),
+    );
+    let best: number | null = null;
+    let bestDelta = Infinity;
+    stack.boards.forEach((b, i) => {
+      const delta = Math.abs(leg.baseHeightCm + b.centerCm - anchorHeightCm);
+      if (delta < bestDelta) {
+        bestDelta = delta;
+        best = i;
+      }
+    });
+    return best !== null && bestDelta <= HEIGHT_MAP_TOLERANCE_CM ? best : null;
+  }
+
+  function reconcileFor(nextShape: Shape) {
+    const next = reconcileRules(nextShape, colorScheme, profileScheme);
+    if (next.colorScheme !== colorScheme) setColorScheme(next.colorScheme);
+    if (next.profileScheme !== profileScheme) setProfileScheme(next.profileScheme);
   }
 
   // Length is the only leg input that changes how many fields the leg
@@ -120,10 +156,9 @@ export function useFenceEditor(
   }
 
   function setJunction(junctionIndex: number, type: Junction['type']) {
-    setShape((prev) => ({
-      ...prev,
-      junctions: prev.junctions.map((j, i) => (i === junctionIndex ? { type } : j)),
-    }));
+    const next = { ...shape, junctions: shape.junctions.map((j, i) => (i === junctionIndex ? { type } : j)) };
+    setShape(next);
+    reconcileFor(next);
   }
 
   function addLeg() {
@@ -261,25 +296,31 @@ export function useFenceEditor(
   // only when explicitly asked for.
   function addColorRule(direction: 'exact' | 'below' | 'above', stepIndex: number, colorHex: string) {
     if (selection?.kind !== 'board') return;
-    const targets = ruleTargets(selection.legIndex, selection.fieldIndex);
+    const targets = ruleTargets(selection.legIndex, selection.fieldIndex, stepIndex);
     setColorScheme((prev) => ({
       ...prev,
       boardRules: [
         ...prev.boardRules,
-        ...targets.map((t) => ({ stepIndex, anchorHeightCm: anchorFor(stepIndex), colorHex, direction, scope: 'field' as const, ...t })),
+        ...targets.map((t) => ({ anchorHeightCm: anchorFor(stepIndex), colorHex, direction, scope: 'field' as const, ...t })),
       ],
     }));
   }
 
   function addColorRuleForSteps(stepIndices: number[], colorHex: string) {
     if (selection?.kind !== 'board') return;
-    const targets = ruleTargets(selection.legIndex, selection.fieldIndex);
+    const sel = selection;
     setColorScheme((prev) => ({
       ...prev,
       boardRules: [
         ...prev.boardRules,
-        ...targets.flatMap((t) =>
-          stepIndices.map((stepIndex) => ({ stepIndex, anchorHeightCm: anchorFor(stepIndex), colorHex, direction: 'exact' as const, scope: 'field' as const, ...t })),
+        ...stepIndices.flatMap((stepIndex) =>
+          ruleTargets(sel.legIndex, sel.fieldIndex, stepIndex).map((t) => ({
+            anchorHeightCm: anchorFor(stepIndex),
+            colorHex,
+            direction: 'exact' as const,
+            scope: 'field' as const,
+            ...t,
+          })),
         ),
       ],
     }));
@@ -302,27 +343,32 @@ export function useFenceEditor(
   // identity for re-mapping, never used during resolution itself.
   function addProfileRule(direction: 'exact' | 'below' | 'above', stepIndex: number, modelId: string, sizeId: string) {
     if (selection?.kind !== 'board') return;
-    const targets = ruleTargets(selection.legIndex, selection.fieldIndex);
+    const targets = ruleTargets(selection.legIndex, selection.fieldIndex, stepIndex);
     setProfileScheme((prev) => ({
       ...prev,
       rules: [
         ...prev.rules,
-        ...targets.map((t) => ({ stepIndex, anchorHeightCm: anchorFor(stepIndex), modelId, sizeId, direction, scope: 'field' as const, ...t })),
+        ...targets.map((t) => ({ anchorHeightCm: anchorFor(stepIndex), modelId, sizeId, direction, scope: 'field' as const, ...t })),
       ],
     }));
   }
 
-  // Same idea as addColorRuleForSteps: one 'exact' rule per selected step —
-  // trivial here since profile is index-keyed, no per-step lookup needed.
   function addProfileRuleForSteps(stepIndices: number[], modelId: string, sizeId: string) {
     if (selection?.kind !== 'board') return;
-    const targets = ruleTargets(selection.legIndex, selection.fieldIndex);
+    const sel = selection;
     setProfileScheme((prev) => ({
       ...prev,
       rules: [
         ...prev.rules,
-        ...targets.flatMap((t) =>
-          stepIndices.map((stepIndex) => ({ stepIndex, anchorHeightCm: anchorFor(stepIndex), modelId, sizeId, direction: 'exact' as const, scope: 'field' as const, ...t })),
+        ...stepIndices.flatMap((stepIndex) =>
+          ruleTargets(sel.legIndex, sel.fieldIndex, stepIndex).map((t) => ({
+            anchorHeightCm: anchorFor(stepIndex),
+            modelId,
+            sizeId,
+            direction: 'exact' as const,
+            scope: 'field' as const,
+            ...t,
+          })),
         ),
       ],
     }));
@@ -363,30 +409,37 @@ export function useFenceEditor(
   // below/above as follow-ups, same "apply to all fields" scope.
   function addSpacerRule(direction: 'exact' | 'below' | 'above', stepIndex: number, multiplier: number) {
     if (selection?.kind !== 'board') return;
-    const targets = ruleTargets(selection.legIndex, selection.fieldIndex);
+    const targets = ruleTargets(selection.legIndex, selection.fieldIndex, stepIndex);
     setProfileScheme((prev) => ({
       ...prev,
       spacerRules: [
         ...prev.spacerRules,
-        ...targets.map((t) => ({ stepIndex, anchorHeightCm: anchorFor(stepIndex), multiplier, direction, scope: 'field' as const, ...t })),
+        ...targets.map((t) => ({ anchorHeightCm: anchorFor(stepIndex), multiplier, direction, scope: 'field' as const, ...t })),
       ],
     }));
   }
 
   function addSpacerRuleForSteps(stepIndices: number[], multiplier: number) {
     if (selection?.kind !== 'board') return;
-    const targets = ruleTargets(selection.legIndex, selection.fieldIndex);
+    const sel = selection;
     setProfileScheme((prev) => ({
       ...prev,
       spacerRules: [
         ...prev.spacerRules,
-        ...targets.flatMap((t) =>
-          stepIndices.map((stepIndex) => ({ stepIndex, anchorHeightCm: anchorFor(stepIndex), multiplier, direction: 'exact' as const, scope: 'field' as const, ...t })),),
+        ...stepIndices.flatMap((stepIndex) =>
+          ruleTargets(sel.legIndex, sel.fieldIndex, stepIndex).map((t) => ({
+            anchorHeightCm: anchorFor(stepIndex),
+            multiplier,
+            direction: 'exact' as const,
+            scope: 'field' as const,
+            ...t,
+          })),
+        ),
       ],
     }));
   }
 
-  function pickSpacer(multiplier: number) {
+    function pickSpacer(multiplier: number) {
     setPendingSpacer(multiplier);
     if (selection?.kind === 'board') {
       addSpacerRuleForSteps(selection.stepIndices, multiplier);

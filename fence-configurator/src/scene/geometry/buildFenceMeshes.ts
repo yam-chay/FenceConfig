@@ -317,6 +317,9 @@ export function buildFenceMeshes(
       resolveBoardStepCandidates(profileScheme, field.legIndex, field.index, stepIndex, leg.modelId, leg.sizeId),
     );
     boardCountByField[`${field.legIndex}:${field.index}`] = boardStack.boards.length;
+        console.log(
+      `field ${field.legIndex}:${field.index} fill=${field.fillHeightCm.toFixed(1)} filled=${boardStack.filledHeightCm.toFixed(1)} leftover=${(field.fillHeightCm - boardStack.filledHeightCm).toFixed(2)} steps=${boardStack.boards.length} last=${boardStack.boards.at(-1)?.modelId}/${boardStack.boards.at(-1)?.sizeId}`,
+    );
     const baseM = field.baseHeightCm / 100;
 
     const startIsMiddle = field.legIndex > 0 && shape.junctions[field.legIndex - 1]?.type !== 'disconnect';
