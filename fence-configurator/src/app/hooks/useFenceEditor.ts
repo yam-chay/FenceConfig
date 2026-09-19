@@ -86,14 +86,30 @@ export function useFenceEditor(
   // the same ABSOLUTE HEIGHT in its own stack — which is what makes a
   // painted band stay level across fields on different wall heights,
   // instead of climbing with the wall the way step-index copying did.
-  function ruleTargets(
+    function ruleTargets(
     legIndex: number,
     fieldIndex: number,
     stepIndex: number,
   ): { legIndex: number; fieldIndex: number; stepIndex: number; derived?: true }[] {
     if (!applyToAllFields) return [{ legIndex, fieldIndex, stepIndex }];
-    const anchorHeightCm = anchorFor(stepIndex);
+
     const refs: { legIndex: number; fieldIndex: number; stepIndex: number; derived?: true }[] = [];
+
+    // Step 0 is STRUCTURAL, not positional: it's the seam against the
+    // rosette, and every field has exactly one regardless of height. So it
+    // fans out by POSITION (always step 0) and only inside its own leg —
+    // mapping it by absolute height like every other rule would land it
+    // mid-column in a leg standing on a lower wall.
+    if (stepIndex === 0) {
+      const count = fieldCountForLegAt(legIndex, shape.legs[legIndex].lengthM);
+      for (let fi = 0; fi < count; fi++) {
+        if (fi === fieldIndex) refs.push({ legIndex, fieldIndex: fi, stepIndex: 0 });
+        else refs.push({ legIndex, fieldIndex: fi, stepIndex: 0, derived: true });
+      }
+      return refs;
+    }
+
+    const anchorHeightCm = anchorFor(stepIndex);
     shape.legs.forEach((leg, li) => {
       const count = fieldCountForLegAt(li, leg.lengthM);
       for (let fi = 0; fi < count; fi++) {
@@ -457,31 +473,14 @@ export function useFenceEditor(
     }
   }
 
-  // Explicit escape hatch: a field with ANY field-scoped profile rule stays
-  // deaf to the leg's own bootstrap default (no longer user-facing, but
-  // still resolveBoardProfile's fallback) for whatever height range that
-  // rule covers — even if you've since repainted every step back to the
-  // same type, since that's still explicit rules, not "no rules".
-  // Repainting to look uniform again doesn't undo that; this does, on
-  // purpose, rather than guessing from the resolved colors/types whether a
-  // field "counts" as still customized.
   function clearFieldProfile(legIndex: number, fieldIndex: number) {
+    const drop = (r: { scope: 'field' | 'global'; legIndex?: number; fieldIndex?: number }) =>
+      r.scope === 'field' && r.legIndex === legIndex && r.fieldIndex === fieldIndex;
+    setColorScheme((prev) => ({ ...prev, boardRules: prev.boardRules.filter((r) => !drop(r)) }));
     setProfileScheme((prev) => ({
       ...prev,
-      rules: prev.rules.filter((r) => !(r.scope === 'field' && r.legIndex === legIndex && r.fieldIndex === fieldIndex)),
-      spacerRules: prev.spacerRules.filter(
-        (r) => !(r.scope === 'field' && r.legIndex === legIndex && r.fieldIndex === fieldIndex),
-      ),
-    }));
-    // Color rules were never cleared here originally — a field with ONLY a
-    // color customization (no profile/spacer rule) silently kept its color
-    // after "restore default", and the button stayed disabled for it too
-    // (see selectedFieldHasCustomizations in App.tsx). Both fixed together.
-    setColorScheme((prev) => ({
-      ...prev,
-      boardRules: prev.boardRules.filter(
-        (r) => !(r.scope === 'field' && r.legIndex === legIndex && r.fieldIndex === fieldIndex),
-      ),
+      rules: prev.rules.filter((r) => !drop(r)),
+      spacerRules: prev.spacerRules.filter((r) => !drop(r)),
     }));
   }
 
@@ -515,7 +514,16 @@ export function useFenceEditor(
   // Color is step-indexed now too (same as profile/spacer — see
   // BoardColorRule in scene/types.ts), so this is a straight 1:1 copy by
   // stepIndex, no height re-keying needed.
-  function applyFieldToEntireFence() {
+    // "החל שדה זה על כל המקטע": copies the open field — every step's color,
+  // profile and spacer — onto every OTHER field of the SAME LEG. Scope is
+  // fixed at the leg even when the "apply to whole fence" toggle is on:
+  // that toggle governs individual attribute picks, and letting two
+  // scoping mechanisms multiply each other makes neither predictable.
+  //
+  // Copying stays 1:1 by stepIndex here, unlike the toggle's height
+  // mapping — fields of one leg share a base height and a closing height,
+  // so step N is at the same physical height in all of them anyway.
+  function applyFieldToSegment() {
     if (selection?.kind !== 'board') return;
     const { legIndex: sourceLegIndex, fieldIndex: sourceFieldIndex } = selection;
     const sourceLeg = shape.legs[sourceLegIndex];
@@ -531,46 +539,44 @@ export function useFenceEditor(
     const newSpacerRules: SpacerRule[] = [];
     const newColorRules: BoardColorRule[] = [];
 
-    shape.legs.forEach((targetLeg, targetLegIndex) => {
-      const targetFieldCount = fieldCountForLegAt(targetLegIndex, targetLeg.lengthM);
-      for (let targetFieldIndex = 0; targetFieldIndex < targetFieldCount; targetFieldIndex++) {
-        if (targetLegIndex === sourceLegIndex && targetFieldIndex === sourceFieldIndex) continue;
-        for (const board of sourceStack.boards) {
-          newProfileRules.push({
-            stepIndex: board.stepIndex,
-            anchorHeightCm: sourceLeg.baseHeightCm + board.centerCm,
-            modelId: board.modelId,
-            sizeId: board.sizeId,
-            direction: 'exact',
-            scope: 'field',
-            derived: true,
-            legIndex: targetLegIndex,
-            fieldIndex: targetFieldIndex,
-          });
-          newSpacerRules.push({
-            stepIndex: board.stepIndex,
-            anchorHeightCm: sourceLeg.baseHeightCm + board.centerCm,
-            multiplier: resolveSpacerMultiplier(profileScheme, sourceLegIndex, sourceFieldIndex, board.stepIndex),
-            direction: 'exact',
-            scope: 'field',
-            derived: true,
-            legIndex: targetLegIndex,
-            fieldIndex: targetFieldIndex,
-          });
-          const colorHex = resolveBoardColorHex(colorScheme, sourceLegIndex, sourceFieldIndex, board.stepIndex);
-          newColorRules.push({
-            stepIndex: board.stepIndex,
-            anchorHeightCm: sourceLeg.baseHeightCm + board.centerCm,
-            colorHex,
-            direction: 'exact',
-            scope: 'field',
-            derived: true,
-            legIndex: targetLegIndex,
-            fieldIndex: targetFieldIndex,
-          });
-        }
+    const fieldCount = fieldCountForLegAt(sourceLegIndex, sourceLeg.lengthM);
+    for (let targetFieldIndex = 0; targetFieldIndex < fieldCount; targetFieldIndex++) {
+      if (targetFieldIndex === sourceFieldIndex) continue;
+      for (const board of sourceStack.boards) {
+        const anchorHeightCm = sourceLeg.baseHeightCm + board.centerCm;
+        newProfileRules.push({
+          stepIndex: board.stepIndex,
+          anchorHeightCm,
+          modelId: board.modelId,
+          sizeId: board.sizeId,
+          direction: 'exact',
+          scope: 'field',
+          derived: true,
+          legIndex: sourceLegIndex,
+          fieldIndex: targetFieldIndex,
+        });
+        newSpacerRules.push({
+          stepIndex: board.stepIndex,
+          anchorHeightCm,
+          multiplier: resolveSpacerMultiplier(profileScheme, sourceLegIndex, sourceFieldIndex, board.stepIndex),
+          direction: 'exact',
+          scope: 'field',
+          derived: true,
+          legIndex: sourceLegIndex,
+          fieldIndex: targetFieldIndex,
+        });
+        newColorRules.push({
+          stepIndex: board.stepIndex,
+          anchorHeightCm,
+          colorHex: resolveBoardColorHex(colorScheme, sourceLegIndex, sourceFieldIndex, board.stepIndex),
+          direction: 'exact',
+          scope: 'field',
+          derived: true,
+          legIndex: sourceLegIndex,
+          fieldIndex: targetFieldIndex,
+        });
       }
-    });
+    }
 
     setProfileScheme((prev) => ({
       ...prev,
@@ -623,7 +629,7 @@ export function useFenceEditor(
     pickSpacer,
     pickBoardProfile,
     clearFieldProfile,
-    applyFieldToEntireFence,
+    applyFieldToSegment,
     undoApplyFenceToast,
     pendingBoardColor,
     pendingModelId,

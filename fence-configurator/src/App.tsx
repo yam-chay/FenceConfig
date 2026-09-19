@@ -109,7 +109,7 @@ export default function App() {
     pickSpacer,
     pickBoardProfile,
     clearFieldProfile,
-    applyFieldToEntireFence,
+    applyFieldToSegment,
     undoApplyFenceToast,
     pendingBoardColor,
     pendingModelId,
@@ -272,16 +272,7 @@ export default function App() {
                   <div className="carousel-label-row">
                     <span className="carousel-label">פרופיל השלב הזה — לחיצה קובעת מיד רק אותו</span>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <label className="group-toggle">
-                        <input
-                          type="checkbox"
-                          checked={applyToAllFields}
-                          onChange={(e) => setApplyToAllFields(e.target.checked)}
-                        />
-                        החל על כל השדות
-                      </label>
-                    </div>
+
                   </div>
                   <div className="carousel">
                     {FENCE_CATALOG.map((model, i) => (
@@ -356,14 +347,7 @@ export default function App() {
                 <div className="carousel-row">
                   <div className="carousel-label-row">
                     <span className="carousel-label">צבע — לחיצה צובעת מיד רק את השלב הזה</span>
-                    <label className="group-toggle">
-                      <input
-                        type="checkbox"
-                        checked={applyToAllFields}
-                        onChange={(e) => setApplyToAllFields(e.target.checked)}
-                      />
-                      החל על כל השדות
-                    </label>
+
                   </div>
                   <div className="carousel">
                     {FENCE_COLORS.map((c) => (
@@ -393,8 +377,22 @@ export default function App() {
                 </div>
 
                 <div className="field-actions">
-                  <button type="button" className="apply-fence-btn" onClick={applyFieldToEntireFence}>
-                    החל שדה זה על כל הגדר
+                  {/* The three scopes, smallest to largest: this field, this
+                      segment, the whole fence. The toggle lives here rather
+                      than beside each carousel because it is the only one of
+                      the three that is global — duplicating it per attribute
+                      made it look local, which it never was. */}
+                  <label className="group-toggle">
+                    <input
+                      type="checkbox"
+                      checked={applyToAllFields}
+                      onChange={(e) => setApplyToAllFields(e.target.checked)}
+                    />
+                    החל על כל הגדר
+                  </label>
+
+                  <button type="button" className="apply-fence-btn" onClick={applyFieldToSegment}>
+                    החל שדה זה על כל המקטע
                   </button>
 
                   <button
