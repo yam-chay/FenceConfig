@@ -13,7 +13,7 @@ function legsEqual(a: Leg, b: Leg): boolean {
 }
 
 /** Which leg indices changed between two shapes, and whether this kind of change is allowed to reset the viewing angle back to default. Null means nothing in legs/junctions differs (e.g. only color changed). */
-export function diffFocusLegs(prev: Shape, next: Shape): { legIndices: number[]; resetAngle: boolean } | null {
+export function diffFocusLegs(prev: Shape, next: Shape): { legIndices: number[]; structural: boolean } | null {
   if (next.legs.length !== prev.legs.length) {
     const added = next.legs.length > prev.legs.length;
 
@@ -26,10 +26,10 @@ export function diffFocusLegs(prev: Shape, next: Shape): { legIndices: number[];
       // triggered it.
       const isPrepend = prev.legs.length > 0 && prev.legs.every((leg, i) => legsEqual(leg, next.legs[i + 1]));
       if (isPrepend) {
-        return { legIndices: [0], resetAngle: true };
+        return { legIndices: [0], structural: true };
       }
       const idx = next.legs.length - 1;
-      return { legIndices: [idx], resetAngle: true };
+      return { legIndices: [idx], structural: true };
     }
 
     // Removing a leg has no single "new" leg to isolate, so that case
@@ -37,7 +37,7 @@ export function diffFocusLegs(prev: Shape, next: Shape): { legIndices: number[];
     const idx = next.legs.length - 1;
     return {
       legIndices: [idx - 1, idx].filter((i) => i >= 0 && i < next.legs.length),
-      resetAngle: true, // adding/removing a leg — "return to default" case
+      structural: true, // adding/removing a leg — "return to default" case
     };
   }
   for (let i = 0; i < next.legs.length; i++) {
@@ -46,7 +46,7 @@ export function diffFocusLegs(prev: Shape, next: Shape): { legIndices: number[];
     if (a.lengthM !== b.lengthM || a.baseHeightCm !== b.baseHeightCm || a.heightCm !== b.heightCm) {
       return {
         legIndices: [i - 1, i, i + 1].filter((idx) => idx >= 0 && idx < next.legs.length),
-        resetAngle: false, // a slider edit on an existing leg — keep the user's current angle
+        structural: false, // a slider edit on an existing leg — keep the user's current angle
       };
     }
   }
@@ -54,7 +54,7 @@ export function diffFocusLegs(prev: Shape, next: Shape): { legIndices: number[];
     if (prev.junctions[i]?.type !== next.junctions[i]?.type) {
       return {
         legIndices: [i, i + 1].filter((idx) => idx >= 0 && idx < next.legs.length),
-        resetAngle: true, // junction direction changed — "return to default" case
+        structural: true, // junction direction changed — "return to default" case
       };
     }
   }

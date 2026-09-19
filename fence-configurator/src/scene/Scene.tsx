@@ -27,7 +27,10 @@ import {
   POLAR_RANGE,
   ZOOM_IN_FACTOR,
   ZOOM_OUT_FACTOR,
-  FLY_DURATION_MS,
+  flyDurationFor,
+  FENCE_MID_HEIGHT_FRACTION,
+  HEIGHT_FOLLOW_STRENGTH,
+  HEIGHT_FOLLOW_MIN_M,
   CLICK_MOVE_THRESHOLD_PX,
   FOCUS_ELEMENT_PADDING,
   FOCUS_EDIT_PADDING,
@@ -161,9 +164,9 @@ export default function Scene({
     toTarget: THREE.Vector3;
     startTime: number;
     toDistance: number;
+    durationMs: number;
   }>(null);
   const pointerDownRef = useRef<{ x: number; y: number } | null>(null);
-  const deselectFlyTimeoutRef = useRef<number | null>(null);
 
   const PANEL_OPEN_DISTANCE_FACTOR: number = 1;
   const PANEL_CLOSE_DISTANCE_FACTOR: number = 1;
@@ -203,8 +206,8 @@ export default function Scene({
    * logic — preserveAngle existed on one but not the other for a while,
    * which is exactly what caused the angle-reset bugs. `instant: true`
    * still animates, technically — it's the same lerp, just given a
-   * startTime already FLY_DURATION_MS in the past, so it resolves to its
-   * destination on the very next frame instead of over FLY_DURATION_MS.
+   * startTime already a full duration in the past, so it resolves to its
+   * destination on the very next frame instead of animating.
    */
   function flyTo(
     target: FrameTarget,
@@ -260,13 +263,18 @@ export default function Scene({
     );
     const toTarget = new THREE.Vector3(target.centerX, target.centerY, target.centerZ);
     controls.enabled = false;
+    // Duration scales with how far the camera actually travels. One fixed
+    // duration made short moves feel sluggish and long ones feel like being
+    // thrown — the same 600 ms whether the camera crossed 20 cm or 8 m.
+    const durationMs = flyDurationFor(camera.position.distanceTo(toPos));
     flyRef.current = {
       fromPos: opts?.instant ? toPos.clone() : camera.position.clone(),
       toPos,
       fromTarget: opts?.instant ? toTarget.clone() : controls.target.clone(),
       toTarget,
-      startTime: opts?.instant ? performance.now() - FLY_DURATION_MS : performance.now(),
+      startTime: opts?.instant ? performance.now() - durationMs : performance.now(),
       toDistance: distance,
+      durationMs,
     };
     lastFrameTargetRef.current = target;
     lastPaddingRef.current = padding;
@@ -736,7 +744,7 @@ export default function Scene({
 
       const fly = flyRef.current;
       if (fly) {
-        const t = Math.min(1, (performance.now() - fly.startTime) / FLY_DURATION_MS);
+        const t = Math.min(1, (performance.now() - fly.startTime) / fly.durationMs);
         const eased = easeInOutQuad(t);
         camera.position.lerpVectors(fly.fromPos, fly.toPos, eased);
         const curTarget = new THREE.Vector3().lerpVectors(fly.fromTarget, fly.toTarget, eased);
@@ -1139,8 +1147,6 @@ export default function Scene({
       return;
     }
 
-    const hadSelection = prevSelectionRef.current !== null;
-    const hasSelection = selection !== null;
     prevSelectionRef.current = selection;
 
     /*
@@ -1154,72 +1160,43 @@ export default function Scene({
     }
 
     if (focusDiff === null) {
-      // Closing an edit sheet (selection -> null) with no shape change: step
-      // back to a window around wherever you were just focused — NOT the
-      // whole shape. Framing the entire shape here was exactly what made
-      // this worse the longer the fence got (and on a background click by
-      // mistake, it read as being launched away with no sense of where you'd
-      // even been). Reusing the last focused target with the "recent-edit"
-      // padding keeps you oriented locally regardless of overall fence size.
-      if (hadSelection && !hasSelection) {
-        if (isMobileViewport()) {
-          return;
-        }
-
-        deselectFlyTimeoutRef.current = window.setTimeout(() => {
-          deselectFlyTimeoutRef.current = null;
-          flyTo(lastFrameTargetRef.current ?? fullBounds, FOCUS_EDIT_PADDING, {
-            relativeToCurrent: false,
-            preserveAngle: true,
-          });
-        }, 180);
-
-        return () => {
-          if (deselectFlyTimeoutRef.current !== null) {
-            window.clearTimeout(deselectFlyTimeoutRef.current);
-            deselectFlyTimeoutRef.current = null;
-          }
-        };
-      }
+      // Nothing structural changed — a color pick, or an edit sheet just
+      // closed. Closing a sheet used to step the camera back to a window
+      // around the last focused target; that fails the test separating a
+      // guiding move from a fighting one, since the user asked for
+      // nothing and so has no cause to connect the movement to. The view
+      // now stays exactly where it was.
       return;
     }
 
     if (fenceHeightOnlyEdit) {
-      const previousTopM = Math.max(
-        0,
-        ...previousShape!.legs.map((leg) => leg.heightCm / 100),
-      );
-
-      const currentTopM = Math.max(
-        0,
-        ...shape.legs.map((leg) => leg.heightCm / 100),
-      );
-
-      const heightDeltaM = currentTopM - previousTopM;
-
-      /*
-       * Move the viewing target only slightly vertically.
-       * Keep the exact current camera distance and angle.
-       *
-       * The multiplier deliberately makes this a subtle visual adjustment,
-       * rather than reframing the whole scene.
-       */
+      const currentTopM = Math.max(0, ...shape.legs.map((leg) => leg.heightCm / 100));
       const currentTarget = controlsRef.current?.target;
 
+      // Ease toward the fence's own mid-height rather than nudging by the
+      // delta times a multiplier. Any such multiplier is arbitrary: too
+      // small and the camera stays parked on the bottom boards while you
+      // build upward, too large and clicking a value throws you across the
+      // scene. Easing toward a real destination converges over a drag and
+      // moves a sensible fraction on a single click, with no magic number.
       if (currentTarget) {
-        flyTo(
-          {
-            centerX: currentTarget.x,
-            centerY: currentTarget.y + heightDeltaM * 1,
-            centerZ: currentTarget.z,
-            radius: shapeBoundsRef.current.radius,
-          },
-          lastPaddingRef.current,
-          {
-            preserveAngle: true,
-            preserveDistance: true,
-          },
-        );
+        const desiredY = currentTopM * FENCE_MID_HEIGHT_FRACTION;
+        const nextY = currentTarget.y + (desiredY - currentTarget.y) * HEIGHT_FOLLOW_STRENGTH;
+        if (Math.abs(nextY - currentTarget.y) > HEIGHT_FOLLOW_MIN_M) {
+          flyTo(
+            {
+              centerX: currentTarget.x,
+              centerY: nextY,
+              centerZ: currentTarget.z,
+              radius: shapeBoundsRef.current.radius,
+            },
+            lastPaddingRef.current,
+            {
+              preserveAngle: true,
+              preserveDistance: true,
+            },
+          );
+        }
       }
 
       return;
@@ -1251,18 +1228,22 @@ export default function Scene({
       centerZ: (fMinZ + fMaxZ) / 2,
       radius: Math.max(Math.sqrt((fMaxX - fMinX) ** 2 + (fMaxZ - fMinZ) ** 2 + fTopM ** 2) / 2, 1.5),
     };
-    // relativeToCurrent mirrors resetAngle, same as preserveAngle already
-    // did: a structural change (leg added, junction changed) frames its OWN
-    // natural distance for whatever it's newly focusing on. Reusing the
-    // camera's current zoom RATIO only makes sense when the old and new
-    // focus targets are similar in scale (an incremental slider edit on the
-    // same leg) — applying it to a resetAngle case compounds badly whenever
-    // the new target (e.g. just the last two legs) is a very different size
-    // than whatever was framed before, which is exactly the "flies even
-    // further away when already zoomed out" symptom.
     flyTo(focusTarget, FOCUS_EDIT_PADDING, {
-      relativeToCurrent: !focusDiff.resetAngle,
-      preserveAngle: !focusDiff.resetAngle,
+      // preserveAngle is unconditional now. Resetting the viewing angle on
+      // a leg add or a junction change was the harshest thing the camera
+      // did — it discarded a choice the user had made, on an action that
+      // had nothing to do with angle.
+      //
+      // relativeToCurrent stays tied to whether the change was structural:
+      // reusing the camera's current zoom RATIO only makes sense when the
+      // old and new focus targets are similar in scale (an incremental
+      // slider edit on the same leg). Applying it to a structural change
+      // compounds badly whenever the new target (e.g. just the last two
+      // legs) is a very different size than whatever was framed before —
+      // exactly the "flies even further away when already zoomed out"
+      // symptom.
+      relativeToCurrent: !focusDiff.structural,
+      preserveAngle: true,
     });
   }, [shape, colorScheme, profileScheme, selection]);
 
