@@ -29,9 +29,19 @@ export function resolveSpacerMultiplier(
   fieldIndex: number,
   stepIndex: number,
 ): number {
-  let multiplier = 1;
+  // Step 0 has no spacer below it by DEFAULT — but that's a default, not
+  // a law of the geometry: the user can raise it, and restore-default
+  // brings it back to 0. Moved here out of computeBoardStack, where it
+  // was hardcoded and no rule could ever override it.
+  let multiplier = stepIndex === 0 ? 0 : 1;
   for (const rule of profileScheme.spacerRules) {
     if (rule.scope === 'field' && (rule.legIndex !== legIndex || rule.fieldIndex !== fieldIndex)) continue;
+    // The bottom gap is only ever changed by targeting step 0 directly.
+    // A below/above sweep anchored anywhere must not drag it along — it's
+    // the seam against the rosette, not an ordinary inter-board gap.
+    // (A multi-select that includes step 0 writes an 'exact' rule for it,
+    // so deliberate targeting still works.)
+    if (stepIndex === 0 && !(rule.direction === 'exact' && rule.stepIndex === 0)) continue;
     let matches = false;
     if (rule.direction === 'exact') matches = rule.stepIndex === stepIndex;
     else if (rule.direction === 'below') matches = stepIndex <= rule.stepIndex;
@@ -68,7 +78,10 @@ export function resolveBoardProfile(
     if (matches) {
       modelId = rule.modelId;
       sizeId = rule.sizeId;
-      fromRule = true;
+      // Assignment, not |= : later rules win here exactly as they do for
+      // modelId/sizeId, so a propagated rule landing on top of an older
+      // clicked one correctly releases the no-fallback lock too.
+      fromRule = !rule.derived;
     }
   }
   return { modelId, sizeId, fromRule };

@@ -21,12 +21,14 @@ export interface BoardColorRule {
   /** Step index (0 = bottom board), not height — same reasoning as BoardProfileRule: keying on height meant a spacer/profile/base-height change silently detached a color rule from the board it was meant for, since the board's absolute height moved but the rule's stored height didn't. */
   stepIndex: number;
   colorHex: string;
+  anchorHeightCm: number;
   /** 'exact' = just the one board clicked. 'below'/'above' = that board and everything toward the ground/sky, within this rule's scope. */
   direction: 'exact' | 'below' | 'above';
   /** 'field' = just the column of boards between the 2 posts this was clicked in. 'global' = every field in the whole shape. */
   scope: 'field' | 'global';
   legIndex?: number;
   fieldIndex?: number;
+  derived?: true;
 }
 
 export interface ColorScheme {
@@ -48,31 +50,37 @@ export interface ColorScheme {
  */
 export interface BoardProfileRule {
   stepIndex: number;
+  anchorHeightCm: number;
   modelId: string;
   sizeId: string;
   direction: 'exact' | 'below' | 'above';
   scope: 'field' | 'global';
   legIndex?: number;
   fieldIndex?: number;
+  derived?: true;
 }
 
 export interface ProfileScheme {
   rules: BoardProfileRule[];
   spacerRules: SpacerRule[];
+  derived?: true;
 }
 
 /**
  * Same rule machinery as BoardProfileRule, but the payload is a multiplier
- * on the spacer BELOW a step (×1 normal, ×2 double, ×0.5 half, etc.). Step
- * 0 has no spacer below it, so a rule matching it simply has no effect.
+ * on the spacer BELOW a step (×0 zero, ×1 normal, ×2 double). Step 0
+ * defaults to ×0 (see resolveSpacerMultiplier) — a default, not a law of
+ * the geometry: a rule on step 0 raises the whole stack off the rosette.
  */
 export interface SpacerRule {
   stepIndex: number;
+  anchorHeightCm: number;
   multiplier: number;
   direction: 'exact' | 'below' | 'above';
   scope: 'field' | 'global';
   legIndex?: number;
   fieldIndex?: number;
+  derived?: true;
 }
 
 /** A camera framing target — world-space center + a radius to fit in view. Shared between geometry (which computes real bounds from the built meshes) and camera (which flies to/frames these targets). */

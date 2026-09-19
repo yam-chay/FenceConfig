@@ -281,19 +281,6 @@ export default function App() {
                         />
                         החל על כל השדות
                       </label>
-
-                      <button
-                        type="button"
-                        className="text-btn"
-                        disabled={!selectedFieldHasCustomizations}
-                        onClick={() => clearFieldProfile(selection.legIndex, selection.fieldIndex)}
-                        style={{
-                          opacity: selectedFieldHasCustomizations ? 1 : 0.45,
-                          cursor: selectedFieldHasCustomizations ? 'pointer' : 'default',
-                        }}
-                      >
-                        שחזר ברירת מחדל ↺
-                      </button>
                     </div>
                   </div>
                   <div className="carousel">
