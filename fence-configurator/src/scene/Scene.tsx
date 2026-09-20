@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';import { type Shape } from '../geometry/shape';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'; import { type Shape } from '../geometry/shape';
 import type { Selection, ColorScheme, ProfileScheme, FrameTarget, LegBounds } from './types';
 import { VIEW_DIRECTION, CAMERA_FORWARD_AZIMUTH_RAD } from './constants';
 import { drawSkyGradient, skyDirectionForHour, sampleDayNight } from './environment/dayNightCycle';
@@ -40,7 +40,7 @@ import {
 import { diffFocusLegs } from './camera/cameraFocus';
 import { GRASS_COLOR_HEX, GRID_OPACITY } from './materials/materials';
 import { SHADOW_MAP_SIZE, SHADOW_FRUSTUM_MARGIN_M } from './environment/lighting';
-
+import { createSceneFog, applyFogRange, disableFog } from './environment/fog';
 export type { Selection, ColorScheme, ProfileScheme, BoardColorRule, BoardProfileRule, SpacerRule } from './types';
 export { resolveBoardColorHex, resolveBoardProfile, resolveSpacerMultiplier, resolveBoardStepCandidates } from './resolvers';
 export { DAY_NIGHT_KEYFRAMES } from './environment/dayNightCycle';
@@ -110,12 +110,13 @@ export default function Scene({
   legCameraFocus,
   timeOfDayHours,
 }: SceneProps) {
+  const fogRef = useRef<THREE.Fog | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
- const fenceGroupRef = useRef<THREE.Group | null>(null);
+  const fenceGroupRef = useRef<THREE.Group | null>(null);
   // Day/night cycle refs — created once in the setup effect below, retuned
   // by the separate timeOfDayHours effect without rerunning scene setup.
   const ambientLightRef = useRef<THREE.AmbientLight | null>(null);
@@ -131,7 +132,7 @@ export default function Scene({
   const skyCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const skyTextureRef = useRef<THREE.CanvasTexture | null>(null);
   const sunGlowRef = useRef<THREE.Sprite | null>(null);
-   const moonGlowRef = useRef<THREE.Sprite | null>(null);
+  const moonGlowRef = useRef<THREE.Sprite | null>(null);
   // Shadow-only proxy group + shared material — see the post-loop comment
   // in the shape-rebuild effect for why these exist.
   const cloudSpritesRef = useRef<CloudSprite[]>([]);
@@ -192,7 +193,9 @@ export default function Scene({
     const fullDistance = distanceForTarget(shapeBoundsRef.current, FULL_SHAPE_PADDING);
     controls.minDistance = Math.min(distance * ZOOM_IN_FACTOR, 1.2);
     controls.maxDistance = Math.max(distance * ZOOM_OUT_FACTOR, fullDistance * 0.95);
-    controls.minAzimuthAngle = DEFAULT_AZIMUTH - AZIMUTH_RANGE;
+    if (fogRef.current) {
+      applyFogRange(fogRef.current, controls.maxDistance, shapeBoundsRef.current.radius);
+    } controls.minAzimuthAngle = DEFAULT_AZIMUTH - AZIMUTH_RANGE;
     controls.maxAzimuthAngle = DEFAULT_AZIMUTH + AZIMUTH_RANGE;
     controls.minPolarAngle = DEFAULT_POLAR - POLAR_RANGE;
     controls.maxPolarAngle = DEFAULT_POLAR + POLAR_RANGE;
@@ -284,7 +287,7 @@ export default function Scene({
     const container = containerRef.current;
     if (!container) return;
 
-  const scene = new THREE.Scene();
+    const scene = new THREE.Scene();
     // Sky gradient: a small canvas redrawn in place (drawSkyGradient)
     // whenever the hour changes, rather than a flat background color.
     const skyCanvas = document.createElement('canvas');
@@ -294,12 +297,15 @@ export default function Scene({
     skyCanvasRef.current = skyCanvas;
     skyTextureRef.current = skyTexture;
     scene.background = skyTexture;
+    const fog = createSceneFog();
+    scene.fog = fog;
+    fogRef.current = fog;
     sceneRef.current = scene;
 
     const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 500);
     cameraRef.current = camera;
 
-     const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
@@ -382,14 +388,14 @@ export default function Scene({
       },
     );
 
-   flyTo(shapeBoundsRef.current, FULL_SHAPE_PADDING, { instant: true });
+    flyTo(shapeBoundsRef.current, FULL_SHAPE_PADDING, { instant: true });
 
     // Day/night cycle: ambient/sun/moon are stored in refs (not local
     // consts) so the separate timeOfDayHours effect below can retune them
     // without rerunning this whole one-time setup. moon starts at
     // intensity 0 — the timeOfDayHours effect sets its real value on the
     // very next commit, before any frame renders with it wrong.
-       // ONE directional light for both sun and moon — its color/position/
+    // ONE directional light for both sun and moon — its color/position/
     // intensity morph continuously between "sunny" and "moonlit" in the
     // day/night effect below, rather than two separate light objects.
     // sunMesh/moonMesh (below) stay separate — they're unlit visual discs
@@ -442,7 +448,7 @@ export default function Scene({
       new THREE.SphereGeometry(1.6, 16, 12),
       new THREE.MeshBasicMaterial({ color: 0xe4e9f5 }),
     );
-   sunMeshRef.current = sunMesh;
+    sunMeshRef.current = sunMesh;
     moonMeshRef.current = moonMesh;
     scene.add(sunMesh, moonMesh);
 
@@ -473,6 +479,12 @@ export default function Scene({
     sunGlowRef.current = sunGlow;
     moonGlowRef.current = moonGlow;
     scene.add(sunGlow, moonGlow);
+    disableFog(
+  sunMesh.material as THREE.Material,
+  moonMesh.material as THREE.Material,
+  sunGlow.material,
+  moonGlow.material,
+);
 
     // Cloud sprites — CLOUD_COUNT puffs, each a bright top layer + a
     // larger, dimmer, downward-offset shadow layer sharing one blotchy
@@ -493,33 +505,34 @@ export default function Scene({
     // change, consistent with how isMobileViewport() is used elsewhere).
     const cloudSprites: CloudSprite[] = [];
     if (!isMobileViewport()) {
-    for (let i = 0; i < CLOUD_COUNT; i++) {
-      // Fully random within the whole span, not an even step-per-cloud
-      // with a small jitter — the old approach kept every cloud locked
-      // near its own narrow slot, which read as one tight cluster rather
-      // than a genuinely scattered sky.
-      const baseAzimuth = CAMERA_FORWARD_AZIMUTH_RAD + THREE.MathUtils.degToRad((Math.random() - 0.5) * CLOUD_AZIMUTH_SPAN_DEG);
-      const elevationM = CLOUD_BASE_ELEVATION_M + (Math.random() - 0.5) * CLOUD_ELEVATION_JITTER_M;
-      const radiusM = CLOUD_ORBIT_RADIUS_M + (Math.random() - 0.5) * CLOUD_RADIUS_JITTER_M;
-      const driftDegPerSec = CLOUD_DRIFT_DEG_PER_SEC * (0.7 + Math.random() * 0.6);
-      // Nearer clouds (smaller radius) read bigger, farther ones smaller —
-      // reinforces the depth variation from radiusM instead of scale
-      // being purely random and disconnected from distance.
-      const radiusT = (radiusM - (CLOUD_ORBIT_RADIUS_M - CLOUD_RADIUS_JITTER_M / 2)) / CLOUD_RADIUS_JITTER_M;
-      const scale = THREE.MathUtils.lerp(CLOUD_SCALE_MAX, CLOUD_SCALE_MIN, THREE.MathUtils.clamp(radiusT, 0, 1));
+      for (let i = 0; i < CLOUD_COUNT; i++) {
+        // Fully random within the whole span, not an even step-per-cloud
+        // with a small jitter — the old approach kept every cloud locked
+        // near its own narrow slot, which read as one tight cluster rather
+        // than a genuinely scattered sky.
+        const baseAzimuth = CAMERA_FORWARD_AZIMUTH_RAD + THREE.MathUtils.degToRad((Math.random() - 0.5) * CLOUD_AZIMUTH_SPAN_DEG);
+        const elevationM = CLOUD_BASE_ELEVATION_M + (Math.random() - 0.5) * CLOUD_ELEVATION_JITTER_M;
+        const radiusM = CLOUD_ORBIT_RADIUS_M + (Math.random() - 0.5) * CLOUD_RADIUS_JITTER_M;
+        const driftDegPerSec = CLOUD_DRIFT_DEG_PER_SEC * (0.7 + Math.random() * 0.6);
+        // Nearer clouds (smaller radius) read bigger, farther ones smaller —
+        // reinforces the depth variation from radiusM instead of scale
+        // being purely random and disconnected from distance.
+        const radiusT = (radiusM - (CLOUD_ORBIT_RADIUS_M - CLOUD_RADIUS_JITTER_M / 2)) / CLOUD_RADIUS_JITTER_M;
+        const scale = THREE.MathUtils.lerp(CLOUD_SCALE_MAX, CLOUD_SCALE_MIN, THREE.MathUtils.clamp(radiusT, 0, 1));
 
-      const bright = new THREE.Sprite(
-        new THREE.SpriteMaterial({ map: cloudTexture, transparent: true, depthWrite: false }),
-      );
-      bright.scale.set(scale, scale * 0.6, 1);
-      const shadow = new THREE.Sprite(
-        new THREE.SpriteMaterial({ map: cloudTexture, transparent: true, depthWrite: false, opacity: 0.5 }),
-      );
-      shadow.scale.set(scale * 1.15, scale * 0.7, 1);
+        const bright = new THREE.Sprite(
+          new THREE.SpriteMaterial({ map: cloudTexture, transparent: true, depthWrite: false }),
+        );
+        bright.scale.set(scale, scale * 0.6, 1);
+        const shadow = new THREE.Sprite(
+          new THREE.SpriteMaterial({ map: cloudTexture, transparent: true, depthWrite: false, opacity: 0.5 }),
+        );
+        shadow.scale.set(scale * 1.15, scale * 0.7, 1);
 
-      scene.add(bright, shadow);
-      cloudSprites.push({ bright, shadow, baseAzimuth, elevationM, radiusM, driftDegPerSec });
-    }
+        scene.add(bright, shadow);
+        disableFog(bright.material, shadow.material);
+        cloudSprites.push({ bright, shadow, baseAzimuth, elevationM, radiusM, driftDegPerSec });
+      }
     }
     cloudSpritesRef.current = cloudSprites;
 
@@ -546,7 +559,7 @@ export default function Scene({
     const groundMeshGeo = new THREE.PlaneGeometry(200, 200);
     const groundMeshMat = new THREE.MeshStandardMaterial({
       color: GRASS_COLOR_HEX,
-      roughness: 0.95,
+      roughness: 1,
       metalness: 0,
     });
     const groundMesh = new THREE.Mesh(groundMeshGeo, groundMeshMat);
@@ -557,7 +570,7 @@ export default function Scene({
     // needs to physically sit below true ground level.
     groundMesh.receiveShadow = true;
     groundMatRef.current = groundMeshMat;
-    scene.add(groundMesh);    const fenceGroup = new THREE.Group();
+    scene.add(groundMesh); const fenceGroup = new THREE.Group();
     fenceGroupRef.current = fenceGroup;
     scene.add(fenceGroup);
 
@@ -648,7 +661,7 @@ export default function Scene({
         // it's inert; with nothing selected it frames the field the
         // wall belongs to, as a navigation aid.
         const focus = mesh.userData.focus as FrameTarget | undefined;
-        if (focus) flyTo(focus, FOCUS_EDIT_PADDING, { preserveAngle: true });        
+        if (focus) flyTo(focus, FOCUS_EDIT_PADDING, { preserveAngle: true });
         return;
       }
       if (kind !== 'board') {
@@ -912,7 +925,7 @@ export default function Scene({
       controls.dispose();
       renderer.dispose();
       scene.environment?.dispose();
-     sunMesh.geometry.dispose();
+      sunMesh.geometry.dispose();
       (sunMesh.material as THREE.Material).dispose();
       moonMesh.geometry.dispose();
       (moonMesh.material as THREE.Material).dispose();
@@ -938,7 +951,7 @@ export default function Scene({
   // fenceGroup and never triggers any camera movement.
   useEffect(() => {
     const scene = sceneRef.current;
-     const ambient = ambientLightRef.current;
+    const ambient = ambientLightRef.current;
     const sky = sunLightRef.current; // merged sun+moon light — see setup effect
     const sunMesh = sunMeshRef.current;
     const moonMesh = moonMeshRef.current;
@@ -955,8 +968,10 @@ export default function Scene({
     ambient.color.copy(sample.ambientColor);
     ambient.intensity = sample.ambientIntensity;
     groundMat.color.copy(sample.groundTint);
+    fogRef.current?.color.set(sample.skyHorizon);
 
-   const sunDir = skyDirectionForHour(timeOfDayHours);
+
+    const sunDir = skyDirectionForHour(timeOfDayHours);
     const moonDir = skyDirectionForHour(timeOfDayHours + 12);
     // sample.sunIntensity/moonIntensity already have SUN_BRIGHTNESS_SCALE/
     // MOON_BRIGHTNESS_SCALE folded in by sampleDayNight — the previous
@@ -1015,7 +1030,7 @@ export default function Scene({
     sunGlow.position.copy(sunDir);
     sunGlow.material.color.copy(sample.glowColor);
     sunGlow.material.opacity = Math.min(1, sunIntensity);
-     moonGlow.position.copy(moonDir);
+    moonGlow.position.copy(moonDir);
     moonGlow.material.color.copy(sample.glowColor);
     moonGlow.material.opacity = Math.min(1, moonIntensity * 1.4);
 
@@ -1066,7 +1081,7 @@ export default function Scene({
     legBoundsRef.current = legBounds;
     geometryStatsRef.current = stats;
 
- shapeBoundsRef.current = fullBounds;
+    shapeBoundsRef.current = fullBounds;
 
     // Retarget the shadow camera to the fence's own current bounds
     // instead of a fixed global frustum — the fence's footprint varies
