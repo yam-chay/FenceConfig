@@ -560,7 +560,7 @@ export default function Scene({
     const groundMeshMat = new THREE.MeshStandardMaterial({
       color: GRASS_COLOR_HEX,
       roughness: 1,
-      metalness: 0,
+      metalness: 0
     });
     const groundMesh = new THREE.Mesh(groundMeshGeo, groundMeshMat);
     groundMesh.rotation.x = -Math.PI / 2;
