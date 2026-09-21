@@ -416,13 +416,13 @@ export default function Scene({
     // If shadow acne (speckled self-shadow noise on flat surfaces)
     // reappears at this lower magnitude, nudge back up gradually rather
     // than jumping straight to -0.0015 again.
-    sky.shadow.bias = -0.0005;
-    sky.shadow.normalBias = 0.02;
+    sky.shadow.bias = -0.0002;
+    sky.shadow.normalBias = 0.05;
     // PCFSoftShadowMap's own blur radius (in shadow-map texels, not
     // world units) — default (~1) was already soft; the fine board-gap
     // detail needed something closer to a hard edge. Lower = sharper.
     sky.shadow.radius = 1;
-    sky.shadow.camera.near = 0.5;
+    sky.shadow.camera.near = 0.1;
     sky.shadow.camera.far = 80;
     sky.shadow.camera.left = -10;
     sky.shadow.camera.right = 10;
@@ -1016,20 +1016,18 @@ export default function Scene({
       .clone()
       .lerp(moonDir, moonWeight)
       .normalize();
-    // Softer shadows when the light is close to the horizon
-    const horizonProximity =
-      1 -
-      THREE.MathUtils.smoothstep(
-        Math.abs(lightDirection.y),
-        0,
-        1
-      );
+    // Dynamic shadow softness based on light elevation
+const horizonProximity = 1 - THREE.MathUtils.smoothstep(
+  Math.abs(lightDirection.y),
+  0.05,
+  0.45
+);
 
-    sky.shadow.radius = THREE.MathUtils.lerp(
-      1,
-      3.5,
-      horizonProximity
-    );
+sky.shadow.radius = THREE.MathUtils.lerp(
+  1.0,  // Sharp shadows
+  2.0,  // Softer shadows near horizon
+  horizonProximity
+);
     const lightTarget = sky.target.position.clone();
 
     sky.position
