@@ -417,10 +417,10 @@ export default function Scene({
     // reappears at this lower magnitude, nudge back up gradually rather
     // than jumping straight to -0.0015 again.
     sky.shadow.bias = -0.0005;
+    sky.shadow.normalBias = 0.02;
     // PCFSoftShadowMap's own blur radius (in shadow-map texels, not
     // world units) — default (~1) was already soft; the fine board-gap
     // detail needed something closer to a hard edge. Lower = sharper.
-    sky.shadow.radius = 1;
     sky.shadow.radius = 1;
     sky.shadow.camera.near = 0.5;
     sky.shadow.camera.far = 80;
@@ -480,11 +480,11 @@ export default function Scene({
     moonGlowRef.current = moonGlow;
     scene.add(sunGlow, moonGlow);
     disableFog(
-  sunMesh.material as THREE.Material,
-  moonMesh.material as THREE.Material,
-  sunGlow.material,
-  moonGlow.material,
-);
+      sunMesh.material as THREE.Material,
+      moonMesh.material as THREE.Material,
+      sunGlow.material,
+      moonGlow.material,
+    );
 
     // Cloud sprites — CLOUD_COUNT puffs, each a bright top layer + a
     // larger, dimmer, downward-offset shadow layer sharing one blotchy
@@ -988,8 +988,22 @@ export default function Scene({
     // Hard cutoff at the horizon, not a fade — if that reads as a pop
     // while dragging the slider, ease it over a small elevation band
     // instead of a bare y > 0 check.
-    const sunIntensity = sunDir.y > 0 ? sample.sunIntensity : 0;
-    const moonIntensity = moonDir.y > 0 ? sample.moonIntensity : 0;
+    const HORIZON_FADE_M = 8;
+
+    const sunHorizonFade = THREE.MathUtils.smoothstep(
+      sunDir.y,
+      -HORIZON_FADE_M,
+      HORIZON_FADE_M,
+    );
+
+    const moonHorizonFade = THREE.MathUtils.smoothstep(
+      moonDir.y,
+      -HORIZON_FADE_M,
+      HORIZON_FADE_M,
+    );
+
+    const sunIntensity = sample.sunIntensity * sunHorizonFade;
+    const moonIntensity = sample.moonIntensity * moonHorizonFade;
 
     // Blend weight toward "moon" — only used for the light's POSITION now.
     // Its color no longer needs a separate blend, since sample.sunColor
@@ -998,12 +1012,32 @@ export default function Scene({
     const totalIntensity = sunIntensity + moonIntensity;
     const moonWeight = totalIntensity > 0.0001 ? moonIntensity / totalIntensity : 0;
 
-    const mergedDir = sunDir.clone().lerp(moonDir, moonWeight);
+    const lightDirection = sunDir
+      .clone()
+      .lerp(moonDir, moonWeight)
+      .normalize();
+    // Softer shadows when the light is close to the horizon
+    const horizonProximity =
+      1 -
+      THREE.MathUtils.smoothstep(
+        Math.abs(lightDirection.y),
+        0,
+        1
+      );
 
-    sky.position.copy(mergedDir);
+    sky.shadow.radius = THREE.MathUtils.lerp(
+      1,
+      3.5,
+      horizonProximity
+    );
+    const lightTarget = sky.target.position.clone();
+
+    sky.position
+      .copy(lightTarget)
+      .addScaledVector(lightDirection, 50);
+
     sky.color.copy(sample.sunColor);
     sky.intensity = totalIntensity;
-
     // Same near/far fix as the shape-rebuild effect's shadow-frustum
     // block, but keyed here too: the light's POSITION changes on every
     // hour change alone (mergedDir above), with no shape/color/selection

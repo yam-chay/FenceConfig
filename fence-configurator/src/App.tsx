@@ -59,7 +59,6 @@ export default function App() {
     canRedo,
     beginHistoryTransaction,
     commitHistoryTransaction,
-    cancelHistoryTransaction,
   } = useHistory(shape,
     colorScheme,
     profileScheme,

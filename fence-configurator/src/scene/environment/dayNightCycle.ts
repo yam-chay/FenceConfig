@@ -4,7 +4,7 @@ import { CAMERA_FORWARD_AZIMUTH_RAD } from '../constants';
 // tweak these two numbers to brighten/dim the whole day or night cycle at once
 // without editing each keyframe row individually.
 const SUN_BRIGHTNESS_SCALE = 3;
-const MOON_BRIGHTNESS_SCALE = 1;
+const MOON_BRIGHTNESS_SCALE = 0.5;
 // MOON_LIGHT_COLOR removed — no longer needed. Every keyframe now carries
 // its own "core" color directly (Sun/Sunset/Sunrise Core by day, Moon
 // Core at night), so ordinary keyframe-to-keyframe interpolation already
@@ -52,11 +52,11 @@ export function drawSkyGradient(
 // out to sit behind the camera instead of in front of it, flip the sign
 // on SKY_ORBIT_DEPTH_Z_M (try -22).
 const SKY_ORBIT_RADIUS_M = 120;
-const SKY_ORBIT_DEPTH_Z_M = 44;
+const SKY_ORBIT_DEPTH_Z_M = 22;
 
 // "Offset to the right" — sign is an unverified guess; flip to negative
 // if sunset ends up on the LEFT of camera-forward instead once rendered.
-const SKY_ORBIT_AZIMUTH_OFFSET_DEG = -50;
+const SKY_ORBIT_AZIMUTH_OFFSET_DEG = -45;
 const SKY_ORBIT_WEST_AZIMUTH_RAD =
   CAMERA_FORWARD_AZIMUTH_RAD + THREE.MathUtils.degToRad(SKY_ORBIT_AZIMUTH_OFFSET_DEG);
 // The OLD (unrotated) arc's own sunset azimuth, hour 18 — solved here
