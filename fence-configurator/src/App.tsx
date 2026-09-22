@@ -119,6 +119,29 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
     return () => window.removeEventListener('hashchange', onHashChange);
   }, [isView]);
 
+  // Back to the default design. One handler, so React batches all setters
+  // into one render — one history entry, undoable with a single Ctrl+Z.
+  const [confirmResetOpen, setConfirmResetOpen] = useState(false);
+  // Esc cancels the reset dialog — listener lives only while it's open.
+  useEffect(() => {
+    if (!confirmResetOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setConfirmResetOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [confirmResetOpen]);
+
+  function resetDesign() {
+    setConfirmResetOpen(false);
+    setSelection(null);
+    setShape(defaultShape());
+    setColorScheme(defaultColorScheme());
+    setProfileScheme(defaultProfileScheme());
+    setLengthPrecision({});
+    setBaseHeightPrecision({});
+  }
+
   function handleDragStart(e: React.PointerEvent<HTMLDivElement>) {
     e.preventDefault(); // stops the browser starting a text-selection drag
     dragStartRef.current = { startY: e.clientY, startHeight: sheetHeight };
@@ -259,6 +282,52 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
               <button className="history-btn" onClick={redo} disabled={!canRedo} title="בצע שוב (Ctrl+Y)">
                 ↷
               </button>
+              <button
+                className="history-btn"
+                onClick={() => setConfirmResetOpen(true)}
+                title="עיצוב חדש"
+                aria-label="עיצוב חדש"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ display: 'block', margin: 'auto' }}
+                  aria-hidden="true"
+                >
+                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                  <path d="M3 3v5h5" />
+                </svg>
+              </button>
+            </div>
+          )}
+
+          {confirmResetOpen && (
+            // Styled by the notice classes in viewMode.css. Backdrop click = cancel.
+            <div className="centered-notice" dir="rtl" role="dialog" aria-modal="true" onClick={() => setConfirmResetOpen(false)}>
+              <div className="centered-notice-card" onClick={(e) => e.stopPropagation()}>
+                <h2>להתחיל עיצוב חדש?</h2>
+                <p>הגדר תחזור לברירת המחדל. אפשר לבטל את זה בכל רגע עם כפתור החזור או Ctrl+Z.</p>
+                <div className="centered-notice-actions">
+                  <button type="button" className="notice-btn" onClick={resetDesign}>
+                    עיצוב חדש
+                  </button>
+                  {/* Focus starts on cancel — a stray Enter must not wipe the design. */}
+                  <button
+                    type="button"
+                    className="notice-btn notice-btn-secondary"
+                    onClick={() => setConfirmResetOpen(false)}
+                    autoFocus
+                  >
+                    ביטול
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
