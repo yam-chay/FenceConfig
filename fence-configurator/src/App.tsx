@@ -24,7 +24,6 @@ import { DesignErrorBoundary, CenteredNotice } from './app/components/DesignErro
 import { ViewDisclaimer } from './app/components/ViewDisclaimer';
 import { ShareLinkButton } from './app/components/ShareLinkButton';
 import './App.css';
-import './app/viewMode.css';
 
 const JUNCTION_LABELS: Record<Junction['type'], string> = {
   right: 'שמאלה',
@@ -289,7 +288,7 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
                 aria-label="עיצוב חדש"
               >
                 <svg
-                  width="16"
+                  width="16="
                   height="16"
                   viewBox="0 0 24 24"
                   fill="none"
@@ -308,19 +307,20 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
           )}
 
           {confirmResetOpen && (
-            // Styled by the notice classes in viewMode.css. Backdrop click = cancel.
-            <div className="centered-notice" dir="rtl" role="dialog" aria-modal="true" onClick={() => setConfirmResetOpen(false)}>
-              <div className="centered-notice-card" onClick={(e) => e.stopPropagation()}>
-                <h2>להתחיל עיצוב חדש?</h2>
-                <p>הגדר תחזור לברירת המחדל. אפשר לבטל את זה בכל רגע עם כפתור החזור או Ctrl+Z.</p>
-                <div className="centered-notice-actions">
-                  <button type="button" className="notice-btn" onClick={resetDesign}>
+            // Same popover as the manual value entry (App.css .value-popover-*).
+            <>
+              <div className="value-popover-backdrop" onClick={() => setConfirmResetOpen(false)} />
+              <div className="value-popover" role="dialog" aria-modal="true" dir="rtl">
+                <div className="value-popover-title">להתחיל עיצוב חדש?</div>
+                <p className="value-popover-hint">הגדר תחזור לברירת המחדל. אפשר לבטל בכל רגע עם כפתור החזור או Ctrl+Z.</p>
+                <div className="value-popover-actions">
+                  <button type="button" className="value-popover-apply" onClick={resetDesign}>
                     עיצוב חדש
                   </button>
                   {/* Focus starts on cancel — a stray Enter must not wipe the design. */}
                   <button
                     type="button"
-                    className="notice-btn notice-btn-secondary"
+                    className="value-popover-cancel"
                     onClick={() => setConfirmResetOpen(false)}
                     autoFocus
                   >
@@ -328,7 +328,7 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
                   </button>
                 </div>
               </div>
-            </div>
+            </>
           )}
 
           {!isView && applyFenceToast && (
