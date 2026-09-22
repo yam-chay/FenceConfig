@@ -1085,7 +1085,7 @@
 
 .view-modal,
 .centered-notice-card {
-  width: min(100%, 440px);
+  width: min(100%, 480px);
   padding: 24px;
   border-radius: 12px;
   background: #fff;
@@ -1098,14 +1098,18 @@
   margin: 0 0 12px;
   font-size: 20px;
   color: var(--brand-secondary);
+  text-align: center;
+  font-weight: bold;
 }
 
 .view-modal p,
 .centered-notice-card p {
   margin: 0 0 10px;
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: 12px;
+  font-weight: bold;
+  line-height: 1.4;
   color: var(--brand-secondary);
+  text-align: center;
 }
 
 .view-modal .view-modal-hint {
