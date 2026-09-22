@@ -1600,3 +1600,89 @@ body {
     border-bottom: none;
   }
 }
+/* Form controls follow the app's light UI, not the OS dark mode
+   (index.css declares `color-scheme: light dark`). */
+.app {
+  color-scheme: light;
+}
+
+@media (max-width: 700px) {
+  /* Every popover on phones: full width, pinned near the top, above the keyboard. */
+  .value-popover {
+    top: 64px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-width: none;
+    box-sizing: border-box;
+    transform: none;
+  }
+
+  /* Length / fence height / wall height: three cards side by side. */
+  .segment-block {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .segment-block > .segment-header,
+  .segment-block > .leg-row:not(.has-stepper) {
+    flex-basis: 100%;
+  }
+
+  .segment-block > .has-stepper {
+    flex: 1 1 0;
+    min-width: 0;
+    margin: 0;
+  }
+
+  .segment-block > .has-stepper .mobile-stepper {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    height: 100%;
+    padding: 8px 6px;
+    border-radius: 10px;
+    background: var(--bg-subtle);
+  }
+
+  .segment-block > .has-stepper .mobile-stepper-label {
+    align-items: center;
+    text-align: center;
+    font-size: 12px;
+  }
+
+  .segment-block > .has-stepper .mobile-stepper-controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      'value value'
+      'minus plus';
+    gap: 6px;
+    margin-top: auto;
+  }
+
+  .segment-block > .has-stepper .stepper-value {
+    grid-area: value;
+    min-width: 0;
+    height: 34px;
+    padding: 0 4px;
+    background: #fff;
+    font-size: 13px;
+  }
+
+  .segment-block > .has-stepper .stepper-btn {
+    width: auto;
+    height: 34px;
+    border-radius: 8px;
+    font-size: 18px;
+  }
+
+  .segment-block > .has-stepper .stepper-btn:first-child {
+    grid-area: minus;
+  }
+
+  .segment-block > .has-stepper .stepper-btn:last-child {
+    grid-area: plus;
+  }
+}
