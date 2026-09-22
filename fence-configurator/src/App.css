@@ -1686,3 +1686,40 @@ body {
     grid-area: plus;
   }
 }
+
+/* Stepper cards — tighter. A fixed two-line label area keeps the three
+   cards aligned without stretching them. */
+@media (max-width: 700px) {
+  .segment-block > .has-stepper .mobile-stepper {
+    height: auto;
+    gap: 4px;
+    padding: 6px;
+  }
+
+  .segment-block > .has-stepper .mobile-stepper-label {
+    min-height: 30px;
+    justify-content: center;
+    font-size: 12px;
+    line-height: 1.2;
+  }
+
+  .segment-block > .has-stepper .mobile-stepper-sub {
+    font-size: 10.5px;
+  }
+
+  .segment-block > .has-stepper .mobile-stepper-controls {
+    gap: 4px;
+    margin-top: 0;
+  }
+
+  .segment-block > .has-stepper .stepper-value {
+    height: 32px;
+    font-size: 14px;
+  }
+
+  .segment-block > .has-stepper .stepper-btn {
+    height: 32px;
+    border-width: 1.5px;
+    font-size: 17px;
+  }
+}
