@@ -257,7 +257,7 @@ export default function App() {
                 {selection.stepIndices.length > 1
                   ? `עריכת שלבים — ${selection.stepIndices.length} שלבים נבחרו מתוך ${selectedFieldTotalSteps}`
                   : `שלב ${selection.stepIndex + 1} מתוך ${selectedFieldTotalSteps} — בגובה ${Math.round(selection.heightCm)} ס״מ`}{' '}
-                (רגל {selection.legIndex + 1}, שדה{' '}
+                (מקטע {selection.legIndex + 1}, שדה{' '}
                 {selection.fieldIndex + 1})
               </span>
               <button className="text-btn" onClick={() => setSelection(null)}>
@@ -430,12 +430,13 @@ export default function App() {
           </button>
         </div>
         <div className="panel-scroll">
-          <h1>בילדר צורה — גדר פרוצדורלית</h1>
+          <h1>הגדרות צורה - גדר פרוצדורלית</h1>
           <p className="hint">
-            רגל היא היחידה הבסיסית — לכל רגל גובה חומה קיים וגובה סגירה משלה. הצומת בין כל שתי
-            רגליים קובע הכל: 90° (ימינה/שמאלה), ישר (רק שינוי גובה), או נתק (שתי גדרות נפרדות
-            לגמרי, בלי עמוד משותף). לחיצה על עמוד בסצנה קובעת צבע לכל העמודים; לחיצה על שלב
-            פותחת בחירת צבע מפוצלת לפי גובה.
+            מקטע הוא היחידה הבסיסית.
+            לכל מקטע אפשר להגדיר גובה חומה, אורך, וגובה סגירה משלו.
+            אפשר להגדיר את הכיוון של הצומת בין כל 2 מקטעים.
+            לחיצה על עמוד נותנת אפשרות לקבוע צבע לכל העמודים.
+            לחיצה על שלב תתמקד בשלב ספציפי ותאפשר לשנות את העיצוב ידנית.
           </p>
 
           {shape.legs.map((leg, legIndex) => {
