@@ -63,6 +63,29 @@ function describeSelection(selection: Selection | null): string {
   return `מקטע ${selection.legIndex + 1}, שדה ${selection.fieldIndex + 1}, ${stepsLabel} ${steps}`;
 }
 
+/**
+ * Edit-sheet title. A contiguous range reads "X עד Y"; a Ctrl-picked set
+ * with gaps can't, so it falls back to a count.
+ */
+function describeSelectedSteps(stepIndices: number[], total: number): string {
+  if (stepIndices.length === 1) return `שלב ${stepIndices[0] + 1} מתוך ${total} נבחר`;
+  const first = Math.min(...stepIndices);
+  const last = Math.max(...stepIndices);
+  const contiguous = last - first + 1 === stepIndices.length;
+  return contiguous
+    ? `שלבים ${first + 1} עד ${last + 1} מתוך ${total} נבחרו`
+    : `${stepIndices.length} שלבים מתוך ${total} נבחרו`;
+}
+
+/** "בגובה 78 ס״מ" for one step, "בגובה 30–58 ס״מ" for several. */
+function describeSelectedHeight(stepHeights: Record<number, number>): string {
+  const heights = Object.values(stepHeights).map((h) => Math.round(h));
+  if (heights.length === 0) return '';
+  const low = Math.min(...heights);
+  const high = Math.max(...heights);
+  return low === high ? `בגובה ${low} ס״מ` : `בגובה ${low}–${high} ס״מ`;
+}
+
 /** Plain text, built to be pasted into WhatsApp/Slack as-is. */
 function buildBugReport(args: {
   description: string;
@@ -661,11 +684,10 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
             </div>
             <div className="bottom-sheet-header">
               <span>
-                {selection.stepIndices.length > 1
-                  ? `עריכת שלבים — ${selection.stepIndices.length} שלבים נבחרו מתוך ${selectedFieldTotalSteps}`
-                  : `שלב ${selection.stepIndex + 1} מתוך ${selectedFieldTotalSteps} — בגובה ${Math.round(selection.heightCm)} ס״מ`}{' '}
-                (מקטע {selection.legIndex + 1}, שדה{' '}
-                {selection.fieldIndex + 1})
+                {describeSelectedSteps(selection.stepIndices, selectedFieldTotalSteps)}
+                <small className="sheet-header-sub">
+                  {describeSelectedHeight(selection.stepHeights)} · שדה {selection.fieldIndex + 1}, מקטע {selection.legIndex + 1}
+                </small>
               </span>
               <button className="text-btn" onClick={() => setSelection(null)}>
                 סגור ✕

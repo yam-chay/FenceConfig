@@ -1753,3 +1753,16 @@ body {
     justify-content: center;
   }
 }
+
+/* Edit-sheet title: height + location inline, in a quieter weight. */
+.sheet-header-sub {
+  display: inline;
+  margin-inline-start: 4px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.sheet-header-sub::before {
+  content: '· ';
+}
