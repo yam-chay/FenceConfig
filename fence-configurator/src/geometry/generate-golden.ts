@@ -1,5 +1,5 @@
-import { fieldCountForLeg, layoutShape, Shape } from './shape';
-import { computeBoardStack, ResolvedBoardDims } from './field';
+import { fieldCountForLeg, layoutShape, type Shape } from './shape';
+import { computeBoardStack, type ResolvedBoardDims } from './field';
 import { faceForDirection, activeGrooveFaces, buildPostSpec } from './post';
 import { resolveBoardDims, sizesForModel, FENCE_CATALOG } from './catalog';
 
