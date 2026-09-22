@@ -1723,3 +1723,33 @@ body {
     font-size: 17px;
   }
 }
+
+/* Center panel content on phones. Scrolling rows use auto margins on the
+   first/last item instead of justify-content: center, which would clip
+   the start of a row that overflows and make it unreachable. */
+@media (max-width: 700px) {
+  /* --- Edit sheet --- */
+  .bottom-sheet-header > span {
+    text-align: center;
+  }
+
+  .carousel-label,
+  .carousel-label-row {
+    justify-content: center;
+    text-align: center;
+  }
+
+  .carousel > :first-child,
+  .leg-tabs > :first-child {
+    margin-inline-start: auto;
+  }
+
+  .carousel > :last-child,
+  .leg-tabs > :last-child {
+    margin-inline-end: auto;
+  }
+
+  .split-actions {
+    justify-content: center;
+  }
+}
