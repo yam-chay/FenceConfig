@@ -1197,11 +1197,31 @@
     display: none;
   }
 
+  /* Centered in the gap between the bug button and the history row. */
   .share-link-wrap {
-    top: 56px;
-    left: auto;
-    right: 12px;
+    top: 12px;
+    left: 56px;   /* 12 + 36 bug button + 8 */
+    right: 140px; /* 12 + 3×36 history buttons + 2×6 gaps + 8 */
     transform: none;
-    align-items: flex-end;
   }
+
+  .share-link-btn {
+    min-height: 36px;
+    padding: 0 12px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  /* iOS auto-zooms into any focused field under 16px. */
+  .bug-report-input,
+  .value-popover-input {
+    font-size: 16px;
+  }
+}
+
+/* The canvas owns pinch (camera zoom). Page-level double-tap/pinch zoom
+   only ever fires by accident here. */
+html,
+body {
+  touch-action: pan-x pan-y;
 }
