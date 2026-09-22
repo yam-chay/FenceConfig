@@ -1754,7 +1754,8 @@ body {
   }
 }
 
-/* Edit-sheet title: height + location inline, in a quieter weight. */
+/* Edit-sheet title: height + location in a quieter weight.
+   Desktop: inline. Phones: its own line — there's no width for both. */
 .sheet-header-sub {
   display: inline;
   margin-inline-start: 4px;
@@ -1765,4 +1766,16 @@ body {
 
 .sheet-header-sub::before {
   content: '· ';
+}
+
+@media (max-width: 700px) {
+  .sheet-header-sub {
+    display: block;
+    margin-inline-start: 0;
+    margin-top: 2px;
+  }
+
+  .sheet-header-sub::before {
+    content: none;
+  }
 }
