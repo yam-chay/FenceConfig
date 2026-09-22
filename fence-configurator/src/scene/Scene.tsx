@@ -86,6 +86,16 @@ interface SceneProps {
    * sky color, and ambient/sun/moon light intensity. See
    * DAY_NIGHT_KEYFRAMES below. */
   timeOfDayHours: number;
+  /** Bump to fly the camera back to the whole fence (view mode's "מבט כללי"). 0 = no request. */
+  frameAllRequest?: number;
+  /** Filled by Scene with a reader for the live camera — used by bug reports. */
+  cameraSnapshotRef?: { current: (() => CameraSnapshot) | null };
+}
+
+export interface CameraSnapshot {
+  position: [number, number, number];
+  target: [number, number, number];
+  distance: number;
 }
 
 interface CloudSprite {
@@ -99,6 +109,13 @@ interface CloudSprite {
 
 const isMobileViewport = () => window.matchMedia('(max-width: 700px)').matches;
 
+/** The ground plane is single-sided — below it the scene turns into sky with grid lines through it. */
+const MIN_CAMERA_HEIGHT_M = 0.25;
+/** Framing on phones: the same distance that fills a desktop canvas leaves a thin strip on a small one. */
+const MOBILE_FRAMING_SCALE = 0.75;
+/** Portrait canvas: fitting the full width pushes the camera far back — let long targets overflow the sides a bit. */
+const PORTRAIT_HFIT_WEIGHT = 0.7;
+
 export default function Scene({
   shape,
   colorScheme,
@@ -109,6 +126,8 @@ export default function Scene({
   skipNextFocusRef,
   legCameraFocus,
   timeOfDayHours,
+  frameAllRequest = 0,
+  cameraSnapshotRef,
 }: SceneProps) {
   const fogRef = useRef<THREE.Fog | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -184,7 +203,8 @@ export default function Scene({
     const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);
     const distForV = target.radius / Math.sin(vFov / 2);
     const distForH = target.radius / Math.sin(hFov / 2);
-    return Math.max(distForV, distForH) * padding;
+    const fit = Math.max(distForV, aspect < 1 ? distForH * PORTRAIT_HFIT_WEIGHT : distForH) * padding;
+    return isMobileViewport() ? fit * MOBILE_FRAMING_SCALE : fit;
   }
 
   function applyConstraints(distance: number) {
@@ -339,6 +359,13 @@ export default function Scene({
     // input methods behind this one flag internally.
     controls.enableZoom = true;
     controlsRef.current = controls;
+    if (cameraSnapshotRef) {
+      cameraSnapshotRef.current = () => ({
+        position: [camera.position.x, camera.position.y, camera.position.z],
+        target: [controls.target.x, controls.target.y, controls.target.z],
+        distance: camera.position.distanceTo(controls.target),
+      });
+    }
     // Fixed zoom distance per wheel step.
     const ZOOM_STEP_M = 1.25;
 
@@ -774,6 +801,13 @@ export default function Scene({
         controls.update();
       }
 
+      // Never below the grass. OrbitControls re-derives its angles from the
+      // camera position on the next update, so clamping here sticks.
+      if (camera.position.y < MIN_CAMERA_HEIGHT_M) {
+        camera.position.y = MIN_CAMERA_HEIGHT_M;
+        camera.lookAt(controls.target);
+      }
+
       const cloudElapsedSec = (performance.now() - cloudAnimStartMs) / 1000;
       for (const cloud of cloudSprites) {
         const azimuth = cloud.baseAzimuth + THREE.MathUtils.degToRad(cloud.driftDegPerSec * cloudElapsedSec);
@@ -827,7 +861,11 @@ export default function Scene({
        * This keeps the horizontal framing visually stable while the
        * actual Three.js workspace still grows/shrinks normally.
        */
+      // Desktop only. On a phone the canvas height changes a lot whenever the
+      // dock opens or folds; folding is meant to show the fence BIGGER, so
+      // the camera stays put instead of backing away to keep the old framing.
       if (
+        !isMobileViewport() &&
         oldAspect !== null &&
         Number.isFinite(oldAspect) &&
         Number.isFinite(newAspect) &&
@@ -923,6 +961,7 @@ export default function Scene({
       renderer.domElement.removeEventListener('pointerup', handlePointerUp);
       renderer.domElement.removeEventListener('wheel', handleWheelZoom, true);
       controls.dispose();
+      if (cameraSnapshotRef) cameraSnapshotRef.current = null;
       renderer.dispose();
       scene.environment?.dispose();
       sunMesh.geometry.dispose();
@@ -1312,6 +1351,13 @@ sky.shadow.radius = THREE.MathUtils.lerp(
     flyTo(target, FOCUS_EDIT_PADDING, { preserveAngle: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [legCameraFocus]);
+
+  // Whole-fence framing on request — keeps the viewer's current angle.
+  useEffect(() => {
+    if (!frameAllRequest) return;
+    flyTo(shapeBoundsRef.current, FULL_SHAPE_PADDING, { preserveAngle: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frameAllRequest]);
 
   return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />;
 }

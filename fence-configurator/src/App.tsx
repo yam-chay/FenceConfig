@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { SPACER_OPTIONS } from './scene/spacerOptions';
-import Scene, { type ColorScheme, type ProfileScheme, type Selection } from './scene/Scene';
+import Scene, { type CameraSnapshot, type ColorScheme, type ProfileScheme, type Selection } from './scene/Scene';
 import type { Shape, Junction } from './geometry/shape';
 import { FENCE_CATALOG } from './geometry/catalog';
 import { POST_THICKNESS_CM, POST_ACCESSORY_WIDTH_MULTIPLIER } from './geometry/constants';
@@ -69,8 +69,13 @@ function buildBugReport(args: {
   snapshot: DesignSnapshot;
   selection: Selection | null;
   stats: { fps: number; drawCalls: number; triangles: number; boardCount: number; postCount: number; fieldCount: number };
+  camera: CameraSnapshot | null;
 }): string {
-  const { description, snapshot, selection, stats } = args;
+  const { description, snapshot, selection, stats, camera } = args;
+  const vec = (v: [number, number, number]) => v.map((n) => n.toFixed(2)).join(', ');
+  const cameraLine = camera
+    ? `מצלמה: מיקום (${vec(camera.position)}) · מבט אל (${vec(camera.target)}) · מרחק ${camera.distance.toFixed(2)} מ׳`
+    : 'מצלמה: לא זמין';
   const version = [BUILD_SHA, BUILD_ENV, BUILD_BRANCH].filter(Boolean).join(' · ');
   return [
     '🐞 דיווח באג',
@@ -83,6 +88,7 @@ function buildBugReport(args: {
     `מסך: ${window.screen.width}×${window.screen.height} · DPR ${window.devicePixelRatio} · חלון ${window.innerWidth}×${window.innerHeight}`,
     `דפדפן: ${navigator.userAgent}`,
     `בחירה: ${describeSelection(selection)}`,
+    cameraLine,
     `ביצועים: ${stats.fps} FPS · ${stats.drawCalls} draw calls · ${stats.triangles.toLocaleString()} triangles`,
     `גדר: ${[
       count(snapshot.shape.legs.length, 'מקטע', 'מקטעים'),
@@ -227,6 +233,12 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
   const [bugFallbackText, setBugFallbackText] = useState<string | null>(null);
   const [bugCopiedToast, setBugCopiedToast] = useState(false);
   const bugToastTimeoutRef = useRef<number | null>(null);
+  /** Filled by Scene — reads the live camera for the report. */
+  const cameraSnapshotRef = useRef<(() => CameraSnapshot) | null>(null);
+  /** Bumped to fly the camera back to the whole fence (view mode). */
+  const [frameAllNonce, setFrameAllNonce] = useState(0);
+  /** Mobile edit sheet shows one category at a time. */
+  const [sheetSection, setSheetSection] = useState<'profile' | 'spacer' | 'color'>('profile');
 
   function openBugReport() {
     setBugText('');
@@ -240,6 +252,7 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
       snapshot: makeSnapshot(shape, colorScheme, profileScheme),
       selection,
       stats,
+      camera: cameraSnapshotRef.current?.() ?? null,
     });
     try {
       await navigator.clipboard.writeText(report);
@@ -385,6 +398,8 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
             skipNextFocusRef={skipNextFocusRef}
             legCameraFocus={legCameraFocus}
             timeOfDayHours={timeOfDayHours}
+            frameAllRequest={frameAllNonce}
+            cameraSnapshotRef={cameraSnapshotRef}
           />
 
           <div className={showFenceTab || showEditTab ? 'time-dial time-dial-raised' : 'time-dial'}>
@@ -413,9 +428,16 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
           )}
           {isView && <ViewDisclaimer />}
 
-          {isView && selection && (
-            <button type="button" className="view-exit-focus" onClick={() => setSelection(null)}>
-              יציאה מפוקוס ✕
+          {isView && (
+            <button
+              type="button"
+              className="view-exit-focus"
+              onClick={() => {
+                setSelection(null);
+                setFrameAllNonce((n) => n + 1);
+              }}
+            >
+              {selection ? 'יציאה מפוקוס ✕' : 'מבט כללי'}
             </button>
           )}
 
@@ -651,8 +673,29 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
             </div>
             <div className="bottom-sheet-content">
               <div className="sheet-flow">
+                {/* Mobile: one category at a time (hidden on desktop by CSS). */}
+                <div className="sheet-section-tabs" role="tablist">
+                  {(
+                    [
+                      ['profile', 'פרופיל'],
+                      ['spacer', 'רווח'],
+                      ['color', 'צבע'],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      role="tab"
+                      aria-selected={sheetSection === key}
+                      className={sheetSection === key ? 'sheet-section-tab active' : 'sheet-section-tab'}
+                      onClick={() => setSheetSection(key)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
 
-                <div className="carousel-row">
+                <div className={sheetSection === 'profile' ? 'carousel-row' : 'carousel-row sheet-section-inactive'}>
                   <div className="carousel-label-row">
                     <span className="carousel-label">פרופיל השלב הזה — לחיצה קובעת מיד רק אותו</span>
 
@@ -699,7 +742,7 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
                     </button>
                   </div>
                 </div>
-                <div className="carousel-row">
+                <div className={sheetSection === 'spacer' ? 'carousel-row' : 'carousel-row sheet-section-inactive'}>
                   <span className="carousel-label">רווח מתחת לשלב הזה — לחיצה קובעת מיד רק אותו</span>
                   <div className="carousel">
                     {SPACER_OPTIONS.map((opt) => (
@@ -728,7 +771,7 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
                   </div>
                 </div>
 
-                <div className="carousel-row">
+                <div className={sheetSection === 'color' ? 'carousel-row' : 'carousel-row sheet-section-inactive'}>
                   <div className="carousel-label-row">
                     <span className="carousel-label">צבע — לחיצה צובעת מיד רק את השלב הזה</span>
 
@@ -825,10 +868,37 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
               לחיצה על שלב תתמקד בשלב ספציפי ותאפשר לשנות את העיצוב ידנית.
             </p>
 
+            {/* Mobile: legs as tabs, one open at a time (hidden on desktop by CSS). */}
+            <div className="leg-tabs" role="tablist">
+              {shape.legs.map((_, legIndex) => {
+                const isOpen = expandedLegIndices.has(legIndex);
+                return (
+                  <button
+                    key={legIndex}
+                    type="button"
+                    role="tab"
+                    aria-selected={isOpen}
+                    className={isOpen ? 'leg-tab active' : 'leg-tab'}
+                    onClick={() => {
+                      if (isOpen) return;
+                      toggleLeg(legIndex); // opens + frames the leg
+                      setExpandedLegIndices(new Set([legIndex])); // and closes the others
+                    }}
+                  >
+                    מקטע {legIndex + 1}
+                  </button>
+                );
+              })}
+            </div>
+
             {shape.legs.map((leg, legIndex) => {
               const isOpen = expandedLegIndices.has(legIndex);
               return (
-                <div key={legIndex} ref={(el) => { legRefs.current[legIndex] = el; }}>
+                <div
+                  key={legIndex}
+                  ref={(el) => { legRefs.current[legIndex] = el; }}
+                  className={isOpen ? 'leg-wrap leg-wrap-open' : 'leg-wrap'}
+                >
                   <div className="segment-block">
                     <button
                       type="button"
@@ -888,6 +958,7 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
                           min={0}
                           max={Math.max(0, leg.heightCm - 20)}
                           step={1}
+                          stepperStep={5}
                           value={leg.baseHeightCm}
                           fineValue={getPrecision(baseHeightPrecision, legIndex).fine}
                           precisionOn={getPrecision(baseHeightPrecision, legIndex).on}
