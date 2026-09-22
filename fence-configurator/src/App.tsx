@@ -43,6 +43,13 @@ const BUILD_ENV = (import.meta.env.VITE_VERCEL_ENV as string | undefined) ?? 'de
 const BUILD_BRANCH = (import.meta.env.VITE_VERCEL_GIT_COMMIT_REF as string | undefined) ?? '';
 const BUG_TOAST_MS = 3500;
 
+// Mobile dock: the main panel and the edit sheet share one bottom slot.
+// Dropping either below this height folds it into a tab.
+const DOCK_COLLAPSE_BELOW_PX = 110;
+const DOCK_DEFAULT_HEIGHT_PX = 260;
+const isMobileLayout = () => window.matchMedia('(max-width: 700px)').matches;
+type DockSurface = 'general' | 'edit' | 'none';
+
 /** Hebrew count: "מקטע אחד" / "3 מקטעים" (all nouns used here are masculine). */
 function count(n: number, one: string, many: string): string {
   return n === 1 ? `${one} אחד` : `${n} ${many}`;
@@ -169,6 +176,47 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
     return () => window.removeEventListener('hashchange', onHashChange);
   }, [isView]);
 
+  // Mobile dock. Only one surface is open at a time; a closed one waits as a
+  // tab. Desktop ignores all of this (the panel is a sidebar there).
+  const [dockSurface, setDockSurface] = useState<DockSurface>('general');
+  /** Last edited board/post — the edit tab reopens it after the sheet closes. */
+  const [lastSelection, setLastSelection] = useState<Selection | null>(null);
+  const prevSelectionRef = useRef<Selection | null>(null);
+
+  // A selection opens the edit sheet. Losing it folds the dock — the main
+  // panel waits as a tab instead of popping back up behind the sheet.
+  useEffect(() => {
+    const prev = prevSelectionRef.current;
+    prevSelectionRef.current = selection;
+    if (selection) {
+      setDockSurface('edit');
+      return;
+    }
+    if (prev) {
+      setLastSelection(prev);
+      setDockSurface((surface) => (surface === 'edit' ? 'none' : surface));
+    }
+  }, [selection]);
+
+  // Any shape change can remove the remembered board — forget it. Declared
+  // after the effect above so a simultaneous change clears last.
+  useEffect(() => {
+    setLastSelection(null);
+  }, [shape]);
+
+  function openGeneralPanel() {
+    setSelection(null);
+    setDockSurface('general');
+  }
+
+  function openEditPanel() {
+    if (selection) setDockSurface('edit');
+    else if (lastSelection) setSelection(lastSelection); // the effect opens the sheet
+  }
+
+  const showFenceTab = !isView && dockSurface !== 'general';
+  const showEditTab = !isView && dockSurface !== 'edit' && (selection !== null || lastSelection !== null);
+
   // Back to the default design. One handler, so React batches all setters
   // into one render — one history entry, undoable with a single Ctrl+Z.
   const [confirmResetOpen, setConfirmResetOpen] = useState(false);
@@ -231,15 +279,23 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
     e.preventDefault(); // stops the browser starting a text-selection drag
     dragStartRef.current = { startY: e.clientY, startHeight: sheetHeight };
     e.currentTarget.setPointerCapture(e.pointerId);
-  } function handleDragMove(e: React.PointerEvent<HTMLDivElement>) {
+  }
+  function handleDragMove(e: React.PointerEvent<HTMLDivElement>) {
     if (!dragStartRef.current) return;
     // Sheet is anchored to the bottom, so dragging DOWN (positive delta) shrinks it.
+    // Mobile may drag all the way down (it folds on release); desktop keeps a sliver.
     const delta = e.clientY - dragStartRef.current.startY;
-    const next = Math.min(480, Math.max(56, dragStartRef.current.startHeight - delta));
+    const min = isMobileLayout() ? 0 : 56;
+    const next = Math.min(480, Math.max(min, dragStartRef.current.startHeight - delta));
     setSheetHeight(next);
   }
   function handleDragEnd() {
+    const start = dragStartRef.current;
     dragStartRef.current = null;
+    if (!start || !isMobileLayout() || sheetHeight >= DOCK_COLLAPSE_BELOW_PX) return;
+    setDockSurface('none');
+    // Reopen at a usable height, not the sliver it was dropped at.
+    setSheetHeight(start.startHeight >= DOCK_COLLAPSE_BELOW_PX ? start.startHeight : DOCK_DEFAULT_HEIGHT_PX);
   }
   const [stats, setStats] = useState({
     fps: 0,
@@ -331,9 +387,30 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
             timeOfDayHours={timeOfDayHours}
           />
 
-          <div style={{ position: 'absolute', left: 12, bottom: 12, zIndex: 5 }}>
+          <div className={showFenceTab || showEditTab ? 'time-dial time-dial-raised' : 'time-dial'}>
             <CircularTimeSlider hours={timeOfDayHours} onChange={setTimeOfDayHours} />
           </div>
+
+          {(showFenceTab || showEditTab) && (
+            <div className="dock-tabs">
+              {showFenceTab && (
+                <button type="button" className="dock-tab" onClick={openGeneralPanel} title="הגדרות הגדר" aria-label="הגדרות הגדר">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                    <path d="M4 3v18M20 3v18" />
+                    <path d="M4 7h16M4 11h16M4 15h16M4 19h16" />
+                  </svg>
+                </button>
+              )}
+              {showEditTab && (
+                <button type="button" className="dock-tab" onClick={openEditPanel} title="עריכת שלבים" aria-label="עריכת שלבים">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+                    <path d="m15 5 4 4" />
+                  </svg>
+                </button>
+              )}
+            </div>
+          )}
           {isView && <ViewDisclaimer />}
 
           {isView && selection && (
@@ -514,7 +591,7 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
         </div>
 
         {!isView && selection?.kind === 'post' && (
-          <div className="bottom-sheet" style={{ height: sheetHeight }}>
+          <div className={dockSurface === 'edit' ? 'bottom-sheet' : 'bottom-sheet sheet-docked'} style={{ height: sheetHeight }}>
             <div
               className="sheet-handle"
               onPointerDown={handleDragStart}
@@ -550,7 +627,7 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
         )}
 
         {!isView && selection?.kind === 'board' && (
-          <div className="bottom-sheet" style={{ height: sheetHeight }}>
+          <div className={dockSurface === 'edit' ? 'bottom-sheet' : 'bottom-sheet sheet-docked'} style={{ height: sheetHeight }}>
             <div
               className="sheet-handle"
               onPointerDown={handleDragStart}
@@ -721,7 +798,7 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
 
       {!isView && (
         <div
-          className={selection ? 'panel panel-yield-mobile' : 'panel'}
+          className={dockSurface === 'general' ? 'panel' : 'panel panel-docked'}
           style={{ '--panel-mobile-height': `${sheetHeight}px` } as React.CSSProperties}
         >
           <div
@@ -734,8 +811,8 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
             <div className="sheet-handle-bar" />
           </div>
           <div className="panel-mobile-header">
-            <button className="text-btn" onClick={() => setSheetHeight((h) => (h <= 60 ? 320 : 56))}>
-              {sheetHeight <= 60 ? 'פתח ⌃' : 'כווץ ✕'}
+            <button className="text-btn" onClick={() => setDockSurface('none')}>
+              כווץ ↓
             </button>
           </div>
           <div className="panel-scroll">
