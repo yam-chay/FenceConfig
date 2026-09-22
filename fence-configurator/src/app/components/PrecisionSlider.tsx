@@ -17,6 +17,7 @@ export function PrecisionSlider({
   onInteractionStart,
   onInteractionEnd,
   className,
+  stepperStep,
 }: {
   mode: 'length' | 'height';
   label: string;
@@ -38,6 +39,8 @@ export function PrecisionSlider({
   onInteractionStart?: () => void;
   onInteractionEnd?: () => void;
   className?: string;
+  /** Mobile −/+ step, in the main unit. Defaults to `step`. */
+  stepperStep?: number;
 }) {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorPrimary, setEditorPrimary] = useState('0'); // length: whole meters · height: full cm.d value
@@ -59,6 +62,12 @@ export function PrecisionSlider({
     onFineAdjust?.();
     onChangeFineValue(clamped);
     onChangeValue(coarse + (precisionOn ? clamped * fineToMain : 0));
+  }
+
+  /** Mobile −/+: moves the coarse part, keeps any fine offset. */
+  function stepBy(direction: 1 | -1) {
+    const next = Math.min(max, Math.max(min, roundToDecimals(coarse + direction * (stepperStep ?? step), 3)));
+    onChangeValue(next + appliedFine);
   }
 
   function toggle(on: boolean) {
@@ -118,7 +127,23 @@ export function PrecisionSlider({
       : `טווח ${formatTrimmed(min, 1)}–${formatTrimmed(max + 0.9, 1)} ס״מ, עד ספרה אחת אחרי הנקודה`;
 
   return (
-    <div className={className}>
+    <div className={className ? `${className} has-stepper` : 'has-stepper'}>
+      {/* Mobile only (CSS): −/+ instead of the slider; tapping the value opens exact entry. */}
+      <div className="mobile-stepper">
+        <span className="mobile-stepper-label">{label}</span>
+        <div className="mobile-stepper-controls">
+          <button type="button" className="stepper-btn" onClick={() => stepBy(-1)} disabled={coarse <= min} aria-label={`${label} — פחות`}>
+            −
+          </button>
+          <button type="button" className="stepper-value" onClick={openEditor} aria-label={`הזנה ידנית — ${label}`}>
+            {displayValue} {mainUnit}
+          </button>
+          <button type="button" className="stepper-btn" onClick={() => stepBy(1)} disabled={coarse >= max} aria-label={`${label} — יותר`}>
+            +
+          </button>
+        </div>
+      </div>
+
       <button
         type="button"
         className="value-trigger"

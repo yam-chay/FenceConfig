@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Leg } from '../../geometry/shape';
+import { resolveBoardDims } from '../../geometry/catalog';
 import { formatTrimmed, roundToDecimals } from '../utils/numberUtils';
 
 /**
@@ -44,6 +45,13 @@ onInteractionEnd?: () => void;
   const FLOOR_CM = 20;
   const CEIL_CM = 200;
 
+  // Mobile −/+ moves by one board + its spacer, so each tap is roughly one step.
+  const dims = resolveBoardDims(leg.modelId, leg.sizeId);
+  const stepCm = dims.boardHeightCm + dims.spacerHeightCm;
+  function stepBy(direction: 1 | -1) {
+    onChangeHeight(Math.max(FLOOR_CM, Math.min(CEIL_CM, roundToDecimals(leg.heightCm + direction * stepCm, 1))));
+  }
+
   function openEditor() {
     setEditorValue(leg.heightCm.toFixed(1));
     setEditorOpen(true);
@@ -68,7 +76,26 @@ onInteractionEnd?: () => void;
   }
 
   return (
-    <div className="leg-row">
+    <div className="leg-row has-stepper">
+      {/* Mobile only (CSS): −/+ one board at a time; tapping the value opens exact entry. */}
+      <div className="mobile-stepper">
+        <span className="mobile-stepper-label">
+          {label}
+          <small className="mobile-stepper-sub">{boardCount} שלבים</small>
+        </span>
+        <div className="mobile-stepper-controls">
+          <button type="button" className="stepper-btn" onClick={() => stepBy(-1)} disabled={leg.heightCm <= FLOOR_CM} aria-label={`${label} — פחות`}>
+            −
+          </button>
+          <button type="button" className="stepper-value" onClick={openEditor} aria-label={`הזנה ידנית — ${label}`}>
+            {formatTrimmed(leg.heightCm, 1)} ס״מ
+          </button>
+          <button type="button" className="stepper-btn" onClick={() => stepBy(1)} disabled={leg.heightCm >= CEIL_CM} aria-label={`${label} — יותר`}>
+            +
+          </button>
+        </div>
+      </div>
+
       <button
         type="button"
         className="value-trigger"

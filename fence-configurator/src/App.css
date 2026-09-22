@@ -1438,3 +1438,165 @@ body {
     font-weight: 500;
   }
 }
+
+/* ---------------------------------------------------------------
+   Mobile phase 2: leg tabs, −/+ steppers, one sheet category at a
+   time. All of it is display:none on desktop.
+   --------------------------------------------------------------- */
+.mobile-stepper,
+.leg-tabs,
+.sheet-section-tabs {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  /* --- Steppers replace sliders (PrecisionSlider / HeightSnapSlider) --- */
+  .has-stepper > .value-trigger,
+  .has-stepper > input[type='range'],
+  .has-stepper > .precision-row {
+    display: none;
+  }
+
+  .mobile-stepper {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .mobile-stepper-label {
+    display: flex;
+    flex-direction: column;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .mobile-stepper-sub {
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--text-muted);
+  }
+
+  /* − on the left, + on the right, like any number control. */
+  .mobile-stepper-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    direction: ltr;
+  }
+
+  .stepper-btn {
+    width: 40px;
+    height: 40px;
+    border: 2px solid #818181;
+    border-radius: 50%;
+    background: #fff;
+    color: var(--brand-secondary);
+    font-size: 20px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+
+  .stepper-btn:active {
+    border-color: var(--brand-primary);
+    background: var(--brand-primary);
+    color: #fff;
+  }
+
+  .stepper-btn:disabled {
+    opacity: 0.35;
+  }
+
+  .stepper-value {
+    min-width: 84px;
+    height: 40px;
+    padding: 0 10px;
+    border: none;
+    border-radius: 8px;
+    background: var(--bg-subtle);
+    color: var(--brand-secondary);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    direction: rtl;
+    text-decoration: underline dotted;
+    text-underline-offset: 3px;
+    cursor: pointer;
+  }
+
+  /* --- Legs as tabs, one open at a time --- */
+  .leg-tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 8px;
+    padding-bottom: 2px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .leg-tab {
+    flex: 0 0 auto;
+    min-height: 36px;
+    padding: 0 14px;
+    border: 2px solid #818181;
+    border-radius: 999px;
+    background: #fff;
+    color: var(--brand-secondary);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  .leg-tab.active {
+    border-color: var(--brand-primary);
+    background: var(--brand-primary);
+    color: #fff;
+  }
+
+  .leg-wrap:not(.leg-wrap-open) {
+    display: none;
+  }
+
+  .leg-wrap .segment-header-toggle {
+    display: none;
+  }
+
+  /* --- Edit sheet: one category at a time --- */
+  .sheet-section-tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+
+  .sheet-section-tab {
+    flex: 1;
+    min-height: 36px;
+    border: none;
+    border-radius: 8px;
+    background: #fff;
+    color: var(--brand-secondary);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  .sheet-section-tab.active {
+    background: var(--brand-secondary);
+    color: #fff;
+  }
+
+  .sheet-flow > .carousel-row.sheet-section-inactive {
+    display: none;
+  }
+
+  .sheet-flow > .carousel-row {
+    margin-bottom: 8px;
+    padding-bottom: 0;
+    border-bottom: none;
+  }
+}
