@@ -1425,3 +1425,16 @@ body {
     font-size: 12px;
   }
 }
+
+/* Collapse / close on phones — real touch targets, not bare 11px text. */
+@media (max-width: 700px) {
+  .panel-mobile-header .text-btn,
+  .bottom-sheet-header .text-btn {
+    min-height: 36px;
+    padding: 0 14px;
+    border-radius: 999px;
+    background: var(--bg-subtle);
+    font-size: 14px;
+    font-weight: 500;
+  }
+}
