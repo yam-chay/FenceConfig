@@ -1188,3 +1188,128 @@
   outline: none;
   border-color: var(--brand-primary);
 }
+/* ---------------------------------------------------------------
+   Mobile density pass (phase 1). On a phone the scarce resource is
+   HEIGHT — every row of controls costs canvas. Remove what doesn't
+   earn its space, compress the rest; keep touch targets ~40px.
+   --------------------------------------------------------------- */
+@media (max-width: 700px) {
+  /* --- General panel --- */
+  .panel {
+    padding: 12px 12px 8px;
+  }
+
+  .panel-mobile-handle {
+    margin: -12px -12px 4px;
+  }
+
+  .panel-mobile-header {
+    margin-bottom: 0;
+  }
+
+  /* Title, explainer and the PLACEHOLDER note: half a screen before the first control. */
+  .panel-scroll > h1,
+  .panel-scroll > .hint,
+  .panel-scroll > .footnote {
+    display: none;
+  }
+
+  .segment-block {
+    padding: 8px 10px;
+    margin-bottom: 8px;
+  }
+
+  .leg-row {
+    margin-bottom: 10px;
+  }
+
+  .junction-divider {
+    margin: -2px 0 8px;
+  }
+
+  /* Summary cards → one compact line: "שלבים 49 · עמודים 8 · שדות 7". */
+  .summary {
+    gap: 6px;
+    margin: 8px 0;
+  }
+
+  .summary > div {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: center;
+    gap: 0 4px;
+    padding: 6px 4px;
+  }
+
+  .summary span {
+    display: inline;
+    font-size: 11px;
+  }
+
+  .summary strong {
+    font-size: 15px;
+  }
+
+  /* --- Edit sheet --- */
+  .bottom-sheet-header {
+    gap: 8px;
+    padding: 0 12px 8px;
+    font-size: 13px;
+    line-height: 1.35;
+  }
+
+  .bottom-sheet-header > span {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .bottom-sheet-header .text-btn {
+    white-space: nowrap;
+  }
+
+  .sheet-flow {
+    padding: 10px 12px;
+    margin-bottom: 8px;
+  }
+
+  .sheet-flow > .carousel-row {
+    margin-bottom: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #d5d5d5;
+  }
+
+  /* One line per section label — the "tap sets only this step" tail can truncate. */
+  .carousel-label {
+    margin-bottom: 6px;
+    font-size: 11.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .carousel-label-row {
+    margin-bottom: 2px;
+  }
+
+  .carousel-item {
+    min-height: 40px;
+    padding: 8px 14px;
+    font-size: 13px;
+  }
+
+  .swatch {
+    width: 32px;
+    height: 32px;
+  }
+
+  .split-actions {
+    gap: 6px;
+    margin-top: 8px;
+  }
+
+  .split-actions .text-btn {
+    padding: 7px 10px;
+    font-size: 12px;
+  }
+}
