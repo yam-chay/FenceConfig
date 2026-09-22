@@ -1188,3 +1188,20 @@
   outline: none;
   border-color: var(--brand-primary);
 }
+
+/* Mobile: no room for three things across the top. The stats badge goes
+   (bug reports already capture FPS/draw calls); the share button drops
+   under the history row instead of sitting between the two corners. */
+@media (max-width: 700px) {
+  .debug-corner .stats-badge {
+    display: none;
+  }
+
+  .share-link-wrap {
+    top: 56px;
+    left: auto;
+    right: 12px;
+    transform: none;
+    align-items: flex-end;
+  }
+}
