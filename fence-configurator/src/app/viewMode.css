@@ -1,0 +1,127 @@
+/* View-only mode, share link, crash notice. Kept out of App.css on purpose. */
+
+.share-link-wrap,
+.view-exit-focus {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+}
+
+.share-link-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.share-link-btn,
+.view-exit-focus {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(20, 24, 28, 0.82);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+}
+
+.share-link-btn:hover,
+.view-exit-focus:hover {
+  background: rgba(20, 24, 28, 0.95);
+}
+
+.share-link-status {
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #1d2328;
+  font-size: 12px;
+  max-width: 260px;
+  text-align: center;
+}
+
+.view-disclaimer-strip {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 5;
+  max-width: min(70%, 420px);
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(20, 24, 28, 0.6);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+
+.view-modal-backdrop,
+.centered-notice {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(10, 12, 14, 0.55);
+}
+
+.view-modal,
+.centered-notice-card {
+  width: min(100%, 440px);
+  padding: 24px;
+  border-radius: 14px;
+  background: #fff;
+  color: #1d2328;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+}
+
+.view-modal h2,
+.centered-notice-card h2 {
+  margin: 0 0 12px;
+  font-size: 20px;
+}
+
+.view-modal p,
+.centered-notice-card p {
+  margin: 0 0 10px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.view-modal-hint {
+  color: #5a646c;
+}
+
+.view-modal-btn,
+.notice-btn {
+  margin-top: 8px;
+  padding: 10px 18px;
+  border: none;
+  border-radius: 10px;
+  background: #1d2328;
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.view-modal-btn {
+  width: 100%;
+}
+
+.centered-notice-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.notice-btn-secondary {
+  background: #e6e9ec;
+  color: #1d2328;
+}

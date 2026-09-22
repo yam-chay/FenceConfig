@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { SPACER_OPTIONS } from './scene/spacerOptions';
 import Scene, { type ColorScheme, type ProfileScheme, type Selection } from './scene/Scene';
 import type { Shape, Junction } from './geometry/shape';
@@ -12,7 +12,19 @@ import { CircularTimeSlider } from './app/components/CircularTimeSlider';
 import { useHistory } from './app/hooks/useHistory';
 import { usePanelState } from './app/hooks/usePanelState';
 import { useFenceEditor } from './app/hooks/useFenceEditor';
+import {
+  readInitialDesign,
+  makeSnapshot,
+  saveLocalDesign,
+  isViewHash,
+  type DesignSnapshot,
+  type InitialDesign,
+} from './app/persistence';
+import { DesignErrorBoundary, CenteredNotice } from './app/components/DesignErrorBoundary';
+import { ViewDisclaimer } from './app/components/ViewDisclaimer';
+import { ShareLinkButton } from './app/components/ShareLinkButton';
 import './App.css';
+import './app/viewMode.css';
 
 const JUNCTION_LABELS: Record<Junction['type'], string> = {
   right: 'שמאלה',
@@ -21,10 +33,19 @@ const JUNCTION_LABELS: Record<Junction['type'], string> = {
   disconnect: 'נתק',
 };
 
-export default function App() {
-  const [shape, setShape] = useState<Shape>(defaultShape());
-  const [colorScheme, setColorScheme] = useState<ColorScheme>(defaultColorScheme());
-  const [profileScheme, setProfileScheme] = useState<ProfileScheme>(defaultProfileScheme());
+/** Autosave debounce — a slider drag fires many updates per second. */
+const AUTOSAVE_DELAY_MS = 300;
+
+function FenceApp({ initial }: { initial: InitialDesign }) {
+  const isView = initial.mode === 'view';
+  // Lazy initializers: the FIRST render already has the saved design. Loading
+  // in an effect instead would render defaults, then swap — Scene reads that
+  // as a shape change and flies the camera, and history records a fake step.
+  const [shape, setShape] = useState<Shape>(() => initial.design?.shape ?? defaultShape());
+  const [colorScheme, setColorScheme] = useState<ColorScheme>(() => initial.design?.colorScheme ?? defaultColorScheme());
+  const [profileScheme, setProfileScheme] = useState<ProfileScheme>(
+    () => initial.design?.profileScheme ?? defaultProfileScheme(),
+  );
   const [selection, setSelection] = useState<Selection | null>(null);
   const [timeOfDayHours, setTimeOfDayHours] = useState(12); // noon by default
   const [sheetHeight, setSheetHeight] = useState(260);
@@ -66,6 +87,37 @@ export default function App() {
     setColorScheme,
     setProfileScheme,
   );
+
+  // Autosave — edit mode ONLY. View mode never writes: opening your own view
+  // link in the same browser would otherwise overwrite your local work.
+  const latestSnapshotRef = useRef<DesignSnapshot | null>(null);
+  useEffect(() => {
+    if (isView) return;
+    const snapshot = makeSnapshot(shape, colorScheme, profileScheme);
+    latestSnapshotRef.current = snapshot;
+    const id = window.setTimeout(() => saveLocalDesign(snapshot), AUTOSAVE_DELAY_MS);
+    return () => window.clearTimeout(id);
+  }, [isView, shape, colorScheme, profileScheme]);
+
+  // Flush on leave, so a refresh inside the debounce window loses nothing.
+  useEffect(() => {
+    if (isView) return;
+    const flush = () => {
+      if (latestSnapshotRef.current) saveLocalDesign(latestSnapshotRef.current);
+    };
+    window.addEventListener('pagehide', flush);
+    return () => window.removeEventListener('pagehide', flush);
+  }, [isView]);
+
+  // Mode is read once at startup. A view link pasted into an open tab only
+  // changes the hash (no reload) — reload so the mode is re-read.
+  useEffect(() => {
+    const onHashChange = () => {
+      if (isView || isViewHash(window.location.hash)) window.location.reload();
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, [isView]);
 
   function handleDragStart(e: React.PointerEvent<HTMLDivElement>) {
     e.preventDefault(); // stops the browser starting a text-selection drag
@@ -174,27 +226,43 @@ export default function App() {
           <div style={{ position: 'absolute', left: 12, bottom: 12, zIndex: 5 }}>
             <CircularTimeSlider hours={timeOfDayHours} onChange={setTimeOfDayHours} />
           </div>
-          <div className="stats-badge">
-            <div>{stats.fps} FPS</div>
-            <div>{stats.drawCalls} draw calls</div>
-            <div>{stats.triangles.toLocaleString()} triangles</div>
-          </div>
+          {isView && <ViewDisclaimer />}
 
-          <div className="history-controls">
-            <button
-              className={undoPulse ? 'history-btn history-btn-pulse' : 'history-btn'}
-              onClick={undo}
-              disabled={!canUndo}
-              title="בטל (Ctrl+Z)"
-            >
-              ↶
+          {isView && selection && (
+            <button type="button" className="view-exit-focus" onClick={() => setSelection(null)}>
+              יציאה מפוקוס ✕
             </button>
-            <button className="history-btn" onClick={redo} disabled={!canRedo} title="בצע שוב (Ctrl+Y)">
-              ↷
-            </button>
-          </div>
+          )}
 
-          {applyFenceToast && (
+          {!isView && (
+            <ShareLinkButton getSnapshot={() => makeSnapshot(shape, colorScheme, profileScheme)} />
+          )}
+
+          {!isView && (
+            <div className="stats-badge">
+              <div>{stats.fps} FPS</div>
+              <div>{stats.drawCalls} draw calls</div>
+              <div>{stats.triangles.toLocaleString()} triangles</div>
+            </div>
+          )}
+
+          {!isView && (
+            <div className="history-controls">
+              <button
+                className={undoPulse ? 'history-btn history-btn-pulse' : 'history-btn'}
+                onClick={undo}
+                disabled={!canUndo}
+                title="בטל (Ctrl+Z)"
+              >
+                ↶
+              </button>
+              <button className="history-btn" onClick={redo} disabled={!canRedo} title="בצע שוב (Ctrl+Y)">
+                ↷
+              </button>
+            </div>
+          )}
+
+          {!isView && applyFenceToast && (
             <div className="toast">
               <span className="toast-message">העיצוב של השדה הוחל על כל הגדר</span>
               <button className="toast-undo" onClick={undoApplyFenceToast}>
@@ -205,7 +273,7 @@ export default function App() {
           )}
         </div>
 
-        {selection?.kind === 'post' && (
+        {!isView && selection?.kind === 'post' && (
           <div className="bottom-sheet" style={{ height: sheetHeight }}>
             <div
               className="sheet-handle"
@@ -241,7 +309,7 @@ export default function App() {
           </div>
         )}
 
-        {selection?.kind === 'board' && (
+        {!isView && selection?.kind === 'board' && (
           <div className="bottom-sheet" style={{ height: sheetHeight }}>
             <div
               className="sheet-handle"
@@ -411,206 +479,230 @@ export default function App() {
         )}
       </div>
 
-      <div
-        className={selection ? 'panel panel-yield-mobile' : 'panel'}
-        style={{ '--panel-mobile-height': `${sheetHeight}px` } as React.CSSProperties}
-      >
+      {!isView && (
         <div
-          className="panel-mobile-handle"
-          onPointerDown={handleDragStart}
-          onPointerMove={handleDragMove}
-          onPointerUp={handleDragEnd}
-          onPointerCancel={handleDragEnd}
+          className={selection ? 'panel panel-yield-mobile' : 'panel'}
+          style={{ '--panel-mobile-height': `${sheetHeight}px` } as React.CSSProperties}
         >
-          <div className="sheet-handle-bar" />
-        </div>
-        <div className="panel-mobile-header">
-          <button className="text-btn" onClick={() => setSheetHeight((h) => (h <= 60 ? 320 : 56))}>
-            {sheetHeight <= 60 ? 'פתח ⌃' : 'כווץ ✕'}
-          </button>
-        </div>
-        <div className="panel-scroll">
-          <h1>הגדרות צורה - גדר פרוצדורלית</h1>
-          <p className="hint">
-            מקטע הוא היחידה הבסיסית.
-            לכל מקטע אפשר להגדיר גובה חומה, אורך, וגובה סגירה משלו.
-            אפשר להגדיר את הכיוון של הצומת בין כל 2 מקטעים.
-            לחיצה על עמוד נותנת אפשרות לקבוע צבע לכל העמודים.
-            לחיצה על שלב תתמקד בשלב ספציפי ותאפשר לשנות את העיצוב ידנית.
-          </p>
+          <div
+            className="panel-mobile-handle"
+            onPointerDown={handleDragStart}
+            onPointerMove={handleDragMove}
+            onPointerUp={handleDragEnd}
+            onPointerCancel={handleDragEnd}
+          >
+            <div className="sheet-handle-bar" />
+          </div>
+          <div className="panel-mobile-header">
+            <button className="text-btn" onClick={() => setSheetHeight((h) => (h <= 60 ? 320 : 56))}>
+              {sheetHeight <= 60 ? 'פתח ⌃' : 'כווץ ✕'}
+            </button>
+          </div>
+          <div className="panel-scroll">
+            <h1>הגדרות צורה - גדר פרוצדורלית</h1>
+            <p className="hint">
+              מקטע הוא היחידה הבסיסית.
+              לכל מקטע אפשר להגדיר גובה חומה, אורך, וגובה סגירה משלו.
+              אפשר להגדיר את הכיוון של הצומת בין כל 2 מקטעים.
+              לחיצה על עמוד נותנת אפשרות לקבוע צבע לכל העמודים.
+              לחיצה על שלב תתמקד בשלב ספציפי ותאפשר לשנות את העיצוב ידנית.
+            </p>
 
-          {shape.legs.map((leg, legIndex) => {
-            const isOpen = expandedLegIndices.has(legIndex);
-            return (
-              <div key={legIndex} ref={(el) => { legRefs.current[legIndex] = el; }}>
-                <div className="segment-block">
-                  <button
-                    type="button"
-                    className="segment-header segment-header-toggle"
-                    onClick={() => toggleLeg(legIndex)}
-                  >
-                    <span>מקטע {legIndex + 1}</span>
-                    {!isOpen && (
-                      <span className="segment-summary">
-                        אורך {leg.lengthM.toFixed(1)} מ׳ · גובה  {Math.round(leg.heightCm)} ס״מ
-                      </span>
-                    )}
-                    <span className={isOpen ? 'segment-caret segment-caret-open' : 'segment-caret'}>
-                      {isOpen ? '↑' : '↓'}
-                    </span>
-                  </button>
-
-                  {isOpen && (
-                    <>
-                      <PrecisionSlider
-                        mode="length"
-                        className="leg-row"
-                        label="אורך"
-                        min={0}
-                        max={20}
-                        step={1}
-                        value={leg.lengthM}
-                        fineValue={getPrecision(lengthPrecision, legIndex).fine}
-                        precisionOn={getPrecision(lengthPrecision, legIndex).on}
-                        onChangeValue={(v) => updateLegLength(legIndex, v)}
-                        onChangeFineValue={(f) =>
-                          setLengthPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), fine: f } }))
-                        }
-                        onTogglePrecision={(on) =>
-                          setLengthPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), on } }))
-                        }
-                        onFineAdjust={() => {
-                          skipNextFocusRef.current = true;
-                        }}
-                        onInteractionStart={beginHistoryTransaction}
-                        onInteractionEnd={commitHistoryTransaction}
-                      />
-
-                      <HeightSnapSlider
-                        label="גובה גדר"
-                        leg={leg}
-                        boardCount={stats.boardCountByLeg[legIndex] ?? 0}
-                        onChangeHeight={(v) => updateLeg(legIndex, (l) => ({ ...l, heightCm: v }))}
-                        onInteractionStart={beginHistoryTransaction}
-                        onInteractionEnd={commitHistoryTransaction}
-                      />
-
-                      <PrecisionSlider
-                        mode="height"
-                        className="leg-row base-height-row"
-                        label="גובה חומה קיים"
-                        min={0}
-                        max={Math.max(0, leg.heightCm - 20)}
-                        step={1}
-                        value={leg.baseHeightCm}
-                        fineValue={getPrecision(baseHeightPrecision, legIndex).fine}
-                        precisionOn={getPrecision(baseHeightPrecision, legIndex).on}
-                        onChangeValue={(v) => updateLeg(legIndex, (l) => ({ ...l, baseHeightCm: v }))}
-                        onChangeFineValue={(f) =>
-                          setBaseHeightPrecision((prev) => ({
-                            ...prev,
-                            [legIndex]: { ...getPrecision(prev, legIndex), fine: f },
-                          }))
-                        }
-                        onTogglePrecision={(on) =>
-                          setBaseHeightPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), on } }))
-                        }
-                        onFineAdjust={() => {
-                          skipNextFocusRef.current = true;
-                        }}
-                        onInteractionStart={beginHistoryTransaction}
-                        onInteractionEnd={commitHistoryTransaction}
-                      />
-
-                      {getPrecision(baseHeightPrecision, legIndex).on && leg.baseHeightCm > 0 && (
-                        <div className="leg-row">
-                          <span className="value-trigger">רוחב חומה: {formatTrimmed(leg.wallWidthCm, 1)} ס״מ</span>
-                          <input
-                            type="range"
-                            min={Math.max(20, POST_THICKNESS_CM * POST_ACCESSORY_WIDTH_MULTIPLIER)} // 20cm product default floor, but never narrower than the rosette sitting on top of it
-                            max={Math.max(40, POST_THICKNESS_CM * POST_ACCESSORY_WIDTH_MULTIPLIER * 2)} // placeholder ceiling — ask the client for a real range
-                            step={0.5}
-                            value={leg.wallWidthCm}
-                            onChange={(e) => updateLeg(legIndex, (l) => ({ ...l, wallWidthCm: Number(e.target.value) }))}
-                          />
-                        </div>
+            {shape.legs.map((leg, legIndex) => {
+              const isOpen = expandedLegIndices.has(legIndex);
+              return (
+                <div key={legIndex} ref={(el) => { legRefs.current[legIndex] = el; }}>
+                  <div className="segment-block">
+                    <button
+                      type="button"
+                      className="segment-header segment-header-toggle"
+                      onClick={() => toggleLeg(legIndex)}
+                    >
+                      <span>מקטע {legIndex + 1}</span>
+                      {!isOpen && (
+                        <span className="segment-summary">
+                          אורך {leg.lengthM.toFixed(1)} מ׳ · גובה  {Math.round(leg.heightCm)} ס״מ
+                        </span>
                       )}
-                    </>
+                      <span className={isOpen ? 'segment-caret segment-caret-open' : 'segment-caret'}>
+                        {isOpen ? '↑' : '↓'}
+                      </span>
+                    </button>
+
+                    {isOpen && (
+                      <>
+                        <PrecisionSlider
+                          mode="length"
+                          className="leg-row"
+                          label="אורך"
+                          min={0}
+                          max={20}
+                          step={1}
+                          value={leg.lengthM}
+                          fineValue={getPrecision(lengthPrecision, legIndex).fine}
+                          precisionOn={getPrecision(lengthPrecision, legIndex).on}
+                          onChangeValue={(v) => updateLegLength(legIndex, v)}
+                          onChangeFineValue={(f) =>
+                            setLengthPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), fine: f } }))
+                          }
+                          onTogglePrecision={(on) =>
+                            setLengthPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), on } }))
+                          }
+                          onFineAdjust={() => {
+                            skipNextFocusRef.current = true;
+                          }}
+                          onInteractionStart={beginHistoryTransaction}
+                          onInteractionEnd={commitHistoryTransaction}
+                        />
+
+                        <HeightSnapSlider
+                          label="גובה גדר"
+                          leg={leg}
+                          boardCount={stats.boardCountByLeg[legIndex] ?? 0}
+                          onChangeHeight={(v) => updateLeg(legIndex, (l) => ({ ...l, heightCm: v }))}
+                          onInteractionStart={beginHistoryTransaction}
+                          onInteractionEnd={commitHistoryTransaction}
+                        />
+
+                        <PrecisionSlider
+                          mode="height"
+                          className="leg-row base-height-row"
+                          label="גובה חומה קיים"
+                          min={0}
+                          max={Math.max(0, leg.heightCm - 20)}
+                          step={1}
+                          value={leg.baseHeightCm}
+                          fineValue={getPrecision(baseHeightPrecision, legIndex).fine}
+                          precisionOn={getPrecision(baseHeightPrecision, legIndex).on}
+                          onChangeValue={(v) => updateLeg(legIndex, (l) => ({ ...l, baseHeightCm: v }))}
+                          onChangeFineValue={(f) =>
+                            setBaseHeightPrecision((prev) => ({
+                              ...prev,
+                              [legIndex]: { ...getPrecision(prev, legIndex), fine: f },
+                            }))
+                          }
+                          onTogglePrecision={(on) =>
+                            setBaseHeightPrecision((prev) => ({ ...prev, [legIndex]: { ...getPrecision(prev, legIndex), on } }))
+                          }
+                          onFineAdjust={() => {
+                            skipNextFocusRef.current = true;
+                          }}
+                          onInteractionStart={beginHistoryTransaction}
+                          onInteractionEnd={commitHistoryTransaction}
+                        />
+
+                        {getPrecision(baseHeightPrecision, legIndex).on && leg.baseHeightCm > 0 && (
+                          <div className="leg-row">
+                            <span className="value-trigger">רוחב חומה: {formatTrimmed(leg.wallWidthCm, 1)} ס״מ</span>
+                            <input
+                              type="range"
+                              min={Math.max(20, POST_THICKNESS_CM * POST_ACCESSORY_WIDTH_MULTIPLIER)} // 20cm product default floor, but never narrower than the rosette sitting on top of it
+                              max={Math.max(40, POST_THICKNESS_CM * POST_ACCESSORY_WIDTH_MULTIPLIER * 2)} // placeholder ceiling — ask the client for a real range
+                              step={0.5}
+                              value={leg.wallWidthCm}
+                              onChange={(e) => updateLeg(legIndex, (l) => ({ ...l, wallWidthCm: Number(e.target.value) }))}
+                            />
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  {shape.junctions[legIndex] && (
+                    <div className="junction-divider">
+                      <div className="junction-controls">
+                        {(['right', 'left', 'straight', 'disconnect'] as const).map((t) => (
+                          <button
+                            key={t}
+                            type="button"
+                            className={
+                              shape.junctions[legIndex].type === t
+                                ? 'pill active'
+                                : 'pill'
+                            }
+                            onClick={() => setJunction(legIndex, t)}
+                          >
+                            {JUNCTION_LABELS[t]}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
+              );
+            })}
 
-                {shape.junctions[legIndex] && (
-                  <div className="junction-divider">
-                    <div className="junction-controls">
-                      {(['right', 'left', 'straight', 'disconnect'] as const).map((t) => (
-                        <button
-                          key={t}
-                          type="button"
-                          className={
-                            shape.junctions[legIndex].type === t
-                              ? 'pill active'
-                              : 'pill'
-                          }
-                          onClick={() => setJunction(legIndex, t)}
-                        >
-                          {JUNCTION_LABELS[t]}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-
-          <div className="segment-actions">
-            <button
-              type="button"
-              className="pill segment-action-btn"
-              onClick={addLegAtStart}
-            >
-              הוסף מקטע בהתחלה +
-            </button>
-
-            <button
-              type="button"
-              className="pill segment-action-btn"
-              onClick={addLeg}
-            >
-              הוסף מקטע בסוף +
-            </button>
-
-            {shape.legs.length > 1 && (
+            <div className="segment-actions">
               <button
                 type="button"
                 className="pill segment-action-btn"
-                onClick={removeLastLeg}
+                onClick={addLegAtStart}
               >
-                הסר מקטע -
+                הוסף מקטע בהתחלה +
               </button>
-            )}
-          </div>
 
-          <div className="summary">
-            <div>
-              <span>שלבים</span>
-              <strong>{stats.boardCount}</strong>
-              <span>(פרופילים)</span>
-            </div>
-            <div>
-              <span>עמודים</span>
-              <strong>{stats.postCount}</strong>
-              <span>({stats.doublePostCount} כפולים)</span>
-            </div>
-            <div>
-              <span>שדות</span>
-              <strong>{stats.fieldCount}</strong>
-            </div>
-          </div>
+              <button
+                type="button"
+                className="pill segment-action-btn"
+                onClick={addLeg}
+              >
+                הוסף מקטע בסוף +
+              </button>
 
-          <p className="footnote">מידות עמוד, עובי לוח ועומק חריץ עדיין PLACEHOLDER — ראה constants.ts.</p>
+              {shape.legs.length > 1 && (
+                <button
+                  type="button"
+                  className="pill segment-action-btn"
+                  onClick={removeLastLeg}
+                >
+                  הסר מקטע -
+                </button>
+              )}
+            </div>
+
+            <div className="summary">
+              <div>
+                <span>שלבים</span>
+                <strong>{stats.boardCount}</strong>
+                <span>(פרופילים)</span>
+              </div>
+              <div>
+                <span>עמודים</span>
+                <strong>{stats.postCount}</strong>
+                <span>({stats.doublePostCount} כפולים)</span>
+              </div>
+              <div>
+                <span>שדות</span>
+                <strong>{stats.fieldCount}</strong>
+              </div>
+            </div>
+
+            <p className="footnote">מידות עמוד, עובי לוח ועומק חריץ עדיין PLACEHOLDER — ראה constants.ts.</p>
+          </div>
         </div>
-      </div>
+      )}
     </div>
+  );
+}
+
+/**
+ * Entry: reads mode + saved/linked design once, then renders. A broken view
+ * link never falls through to the editor — a customer must never land in it.
+ */
+export default function App() {
+  const [initial] = useState(readInitialDesign);
+  const brokenViewLink = initial.mode === 'view' && !initial.design;
+
+  return (
+    <DesignErrorBoundary mode={initial.mode}>
+      {brokenViewLink ? (
+        <CenteredNotice
+          title="הקישור לא תקין"
+          body="לא הצלחנו לפתוח את ההדמיה מהקישור הזה. ייתכן שהוא נקטע בהעתקה — אפשר לבקש קישור חדש."
+        />
+      ) : (
+        <FenceApp initial={initial} />
+      )}
+    </DesignErrorBoundary>
   );
 }
