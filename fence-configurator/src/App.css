@@ -1150,3 +1150,41 @@
   background: #fff;
   color: var(--brand-secondary);
 }
+
+/* Debug corner: stats badge + bug-report button, side by side. */
+.debug-corner {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 5;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  direction: ltr;
+}
+
+.debug-corner .stats-badge {
+  position: static;
+}
+
+.bug-report-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 16px;
+  padding: 10px;
+  border: 1.5px solid #ccc;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--brand-secondary);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  direction: rtl;
+  resize: vertical;
+}
+
+.bug-report-input:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+}

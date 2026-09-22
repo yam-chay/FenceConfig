@@ -17,6 +17,7 @@ import {
   makeSnapshot,
   saveLocalDesign,
   isViewHash,
+  buildShareUrl,
   type DesignSnapshot,
   type InitialDesign,
 } from './app/persistence';
@@ -34,6 +35,56 @@ const JUNCTION_LABELS: Record<Junction['type'], string> = {
 
 /** Autosave debounce — a slider drag fires many updates per second. */
 const AUTOSAVE_DELAY_MS = 300;
+
+// Build identity for bug reports. Vercel exposes its system env vars to Vite
+// with a VITE_ prefix at build time; locally they're undefined.
+const BUILD_SHA = (import.meta.env.VITE_VERCEL_GIT_COMMIT_SHA as string | undefined)?.slice(0, 7) ?? 'local';
+const BUILD_ENV = (import.meta.env.VITE_VERCEL_ENV as string | undefined) ?? 'development';
+const BUILD_BRANCH = (import.meta.env.VITE_VERCEL_GIT_COMMIT_REF as string | undefined) ?? '';
+const BUG_TOAST_MS = 3500;
+
+/** Hebrew count: "מקטע אחד" / "3 מקטעים" (all nouns used here are masculine). */
+function count(n: number, one: string, many: string): string {
+  return n === 1 ? `${one} אחד` : `${n} ${many}`;
+}
+
+function describeSelection(selection: Selection | null): string {
+  if (!selection) return 'אין';
+  if (selection.kind === 'post') return 'עמוד';
+  const steps = selection.stepIndices.map((i) => i + 1).join(', ');
+  const stepsLabel = selection.stepIndices.length === 1 ? 'שלב' : 'שלבים';
+  return `מקטע ${selection.legIndex + 1}, שדה ${selection.fieldIndex + 1}, ${stepsLabel} ${steps}`;
+}
+
+/** Plain text, built to be pasted into WhatsApp/Slack as-is. */
+function buildBugReport(args: {
+  description: string;
+  snapshot: DesignSnapshot;
+  selection: Selection | null;
+  stats: { fps: number; drawCalls: number; triangles: number; boardCount: number; postCount: number; fieldCount: number };
+}): string {
+  const { description, snapshot, selection, stats } = args;
+  const version = [BUILD_SHA, BUILD_ENV, BUILD_BRANCH].filter(Boolean).join(' · ');
+  return [
+    '🐞 דיווח באג',
+    `מה קרה: ${description || '(לא צוין)'}`,
+    '',
+    `קישור למצב הגדר: ${buildShareUrl(snapshot)}`,
+    '',
+    `גרסה: ${version}`,
+    `זמן: ${new Date().toLocaleString('he-IL')}`,
+    `מסך: ${window.screen.width}×${window.screen.height} · DPR ${window.devicePixelRatio} · חלון ${window.innerWidth}×${window.innerHeight}`,
+    `דפדפן: ${navigator.userAgent}`,
+    `בחירה: ${describeSelection(selection)}`,
+    `ביצועים: ${stats.fps} FPS · ${stats.drawCalls} draw calls · ${stats.triangles.toLocaleString()} triangles`,
+    `גדר: ${[
+      count(snapshot.shape.legs.length, 'מקטע', 'מקטעים'),
+      count(stats.fieldCount, 'שדה', 'שדות'),
+      count(stats.boardCount, 'שלב', 'שלבים'),
+      count(stats.postCount, 'עמוד', 'עמודים'),
+    ].join(' · ')}`,
+  ].join('\n');
+}
 
 function FenceApp({ initial }: { initial: InitialDesign }) {
   const isView = initial.mode === 'view';
@@ -121,15 +172,50 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
   // Back to the default design. One handler, so React batches all setters
   // into one render — one history entry, undoable with a single Ctrl+Z.
   const [confirmResetOpen, setConfirmResetOpen] = useState(false);
-  // Esc cancels the reset dialog — listener lives only while it's open.
+  // Bug report: description → one text blob on the clipboard.
+  const [bugReportOpen, setBugReportOpen] = useState(false);
+  const [bugText, setBugText] = useState('');
+  /** Set when the clipboard is blocked — the report is shown for manual copy. */
+  const [bugFallbackText, setBugFallbackText] = useState<string | null>(null);
+  const [bugCopiedToast, setBugCopiedToast] = useState(false);
+  const bugToastTimeoutRef = useRef<number | null>(null);
+
+  function openBugReport() {
+    setBugText('');
+    setBugFallbackText(null);
+    setBugReportOpen(true);
+  }
+
+  async function copyBugReport() {
+    const report = buildBugReport({
+      description: bugText.trim(),
+      snapshot: makeSnapshot(shape, colorScheme, profileScheme),
+      selection,
+      stats,
+    });
+    try {
+      await navigator.clipboard.writeText(report);
+    } catch {
+      setBugFallbackText(report);
+      return;
+    }
+    setBugReportOpen(false);
+    setBugCopiedToast(true);
+    if (bugToastTimeoutRef.current) window.clearTimeout(bugToastTimeoutRef.current);
+    bugToastTimeoutRef.current = window.setTimeout(() => setBugCopiedToast(false), BUG_TOAST_MS);
+  }
+
+  // Esc closes whichever dialog is open — listener lives only while one is.
   useEffect(() => {
-    if (!confirmResetOpen) return;
+    if (!confirmResetOpen && !bugReportOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setConfirmResetOpen(false);
+      if (e.key !== 'Escape') return;
+      setConfirmResetOpen(false);
+      setBugReportOpen(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [confirmResetOpen]);
+  }, [confirmResetOpen, bugReportOpen]);
 
   function resetDesign() {
     setConfirmResetOpen(false);
@@ -261,10 +347,95 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
           )}
 
           {!isView && (
-            <div className="stats-badge">
-              <div>{stats.fps} FPS</div>
-              <div>{stats.drawCalls} draw calls</div>
-              <div>{stats.triangles.toLocaleString()} triangles</div>
+            <div className="debug-corner">
+              <div className="stats-badge">
+                <div>{stats.fps} FPS</div>
+                <div>{stats.drawCalls} draw calls</div>
+                <div>{stats.triangles.toLocaleString()} triangles</div>
+              </div>
+              <button className="history-btn" onClick={openBugReport} title="דיווח על באג" aria-label="דיווח על באג">
+                <svg
+                  width="17"
+                  height="17"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ display: 'block', margin: 'auto' }}
+                  aria-hidden="true"
+                >
+                  <path d="m8 2 1.88 1.88" />
+                  <path d="M14.12 3.88 16 2" />
+                  <path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1" />
+                  <path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6" />
+                  <path d="M12 20v-9" />
+                  <path d="M6.53 9C4.6 8.8 3 7.1 3 5" />
+                  <path d="M6 13H2" />
+                  <path d="M3 21c0-2.1 1.7-3.9 3.8-4" />
+                  <path d="M20.97 5c0 2.1-1.6 3.8-3.5 4" />
+                  <path d="M22 13h-4" />
+                  <path d="M17.2 17c2.1.1 3.8 1.9 3.8 4" />
+                </svg>
+              </button>
+            </div>
+          )}
+
+          {bugReportOpen && (
+            <>
+              <div className="value-popover-backdrop" onClick={() => setBugReportOpen(false)} />
+              <div className="value-popover value-popover-wide" role="dialog" aria-modal="true" dir="rtl">
+                <div className="value-popover-title">דיווח על באג</div>
+                {bugFallbackText === null ? (
+                  <>
+                    <p className="value-popover-hint">
+                      מה עשית, ומה ציפית שיקרה? מצב הגדר, הגרסה והמסך מצורפים אוטומטית.
+                    </p>
+                    <textarea
+                      className="bug-report-input"
+                      rows={4}
+                      value={bugText}
+                      onChange={(e) => setBugText(e.target.value)}
+                      // Keep Ctrl+Z inside the textarea — never undo the fence while typing.
+                      onKeyDown={(e) => {
+                        e.stopPropagation();
+                        if (e.key === 'Escape') setBugReportOpen(false);
+                      }}
+                      placeholder="לדוגמה: שיניתי גובה במקטע 2 והשלב העליון נעלם"
+                      autoFocus
+                    />
+                  </>
+                ) : (
+                  <>
+                    <p className="value-popover-hint">ההעתקה האוטומטית נחסמה — סמנו את הטקסט והעתיקו ידנית.</p>
+                    <textarea
+                      className="bug-report-input"
+                      rows={8}
+                      readOnly
+                      value={bugFallbackText}
+                      onFocus={(e) => e.currentTarget.select()}
+                      autoFocus
+                    />
+                  </>
+                )}
+                <div className="value-popover-actions">
+                  {bugFallbackText === null && (
+                    <button type="button" className="value-popover-apply" onClick={copyBugReport}>
+                      העתק דיווח
+                    </button>
+                  )}
+                  <button type="button" className="value-popover-cancel" onClick={() => setBugReportOpen(false)}>
+                    {bugFallbackText === null ? 'ביטול' : 'סגור'}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+
+          {!isView && bugCopiedToast && (
+            <div className="toast">
+              <span className="toast-message">הדיווח הועתק — הדביקו ושלחו</span>
             </div>
           )}
 
@@ -288,7 +459,7 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
                 aria-label="עיצוב חדש"
               >
                 <svg
-                  width="16="
+                  width="16"
                   height="16"
                   viewBox="0 0 24 24"
                   fill="none"
@@ -705,17 +876,17 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
               <button
                 type="button"
                 className="pill segment-action-btn"
-                onClick={addLeg}
+                onClick={addLegAtStart}
               >
-                הוסף מקטע בסוף +
+                הוסף מקטע בהתחלה +
               </button>
 
               <button
                 type="button"
                 className="pill segment-action-btn"
-                onClick={addLegAtStart}
+                onClick={addLeg}
               >
-                הוסף מקטע בהתחלה +
+                הוסף מקטע בסוף +
               </button>
 
               {shape.legs.length > 1 && (
