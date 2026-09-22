@@ -115,6 +115,10 @@ const MIN_CAMERA_HEIGHT_M = 0.25;
 const MOBILE_FRAMING_SCALE = 0.75;
 /** Portrait canvas: fitting the full width pushes the camera far back — let long targets overflow the sides a bit. */
 const PORTRAIT_HFIT_WEIGHT = 0.7;
+/** Manual pan (right-drag / two fingers) is for small nudges — slower than OrbitControls' default. */
+const PAN_SPEED = 0.7;
+/** How far past the fence's own footprint a pan may carry the view target, meters. */
+const PAN_MARGIN_M = 2;
 
 export default function Scene({
   shape,
@@ -346,7 +350,12 @@ export default function Scene({
     pmremGenerator.dispose();
 
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enablePan = false;
+    // Pan: right-drag on desktop, two fingers on touch (OrbitControls'
+    // defaults for RIGHT and TWO). Screen-space, so a small drag nudges the
+    // view exactly the way the finger moved. Kept near the fence below.
+    controls.enablePan = true;
+    controls.screenSpacePanning = true;
+    controls.panSpeed = PAN_SPEED;
     controls.enableDamping = true;
     controls.dampingFactor = 0.5;
     // Stays TRUE — needed for OrbitControls' native two-finger pinch-zoom
@@ -636,13 +645,30 @@ export default function Scene({
       };
     }
 
+    // A click is a primary-button, single-pointer press. Right-drag and
+    // two-finger gestures are pan/zoom — releasing one must never select.
+    const activePointers = new Set<number>();
+    let multiPointerGesture = false;
     const handlePointerDown = (e: PointerEvent) => {
-      pointerDownRef.current = { x: e.clientX, y: e.clientY };
+      activePointers.add(e.pointerId);
+      if (activePointers.size > 1) multiPointerGesture = true;
+      pointerDownRef.current = e.button === 0 && !multiPointerGesture ? { x: e.clientX, y: e.clientY } : null;
+    };
+    const releasePointer = (pointerId: number): boolean => {
+      activePointers.delete(pointerId);
+      const wasMulti = multiPointerGesture;
+      if (activePointers.size === 0) multiPointerGesture = false;
+      return wasMulti;
+    };
+    const handlePointerCancel = (e: PointerEvent) => {
+      releasePointer(e.pointerId);
+      pointerDownRef.current = null;
     };
     const handlePointerUp = (e: PointerEvent) => {
+      const wasMulti = releasePointer(e.pointerId);
       const down = pointerDownRef.current;
       pointerDownRef.current = null;
-      if (!down) return;
+      if (!down || wasMulti) return;
       const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
       if (moved > CLICK_MOVE_THRESHOLD_PX) return;
 
@@ -773,11 +799,36 @@ export default function Scene({
     };
     renderer.domElement.addEventListener('pointerdown', handlePointerDown);
     renderer.domElement.addEventListener('pointerup', handlePointerUp);
+    renderer.domElement.addEventListener('pointercancel', handlePointerCancel);
 
     let frameCount = 0;
     let lastFpsSample = performance.now();
     let rafId: number;
     const cloudAnimStartMs = performance.now();
+
+    // Pan may nudge the view, not lose the fence: the target stays within
+    // the fence's footprint (+ margin) and above ground. Camera moves by the
+    // same correction, so angle and distance are untouched.
+    const keepTargetNearFence = () => {
+      const b = shapeBoundsRef.current;
+      const t = controls.target;
+      const dx = t.x - b.centerX;
+      const dz = t.z - b.centerZ;
+      const reach = b.radius + PAN_MARGIN_M;
+      const r = Math.hypot(dx, dz);
+      const scale = r > reach ? reach / r : 1;
+      const nx = b.centerX + dx * scale;
+      const nz = b.centerZ + dz * scale;
+      const ny = THREE.MathUtils.clamp(t.y, 0, b.centerY + b.radius);
+      const cx = nx - t.x;
+      const cy = ny - t.y;
+      const cz = nz - t.z;
+      if (cx === 0 && cy === 0 && cz === 0) return;
+      t.set(nx, ny, nz);
+      camera.position.x += cx;
+      camera.position.y += cy;
+      camera.position.z += cz;
+    };
 
     const animate = () => {
       rafId = requestAnimationFrame(animate);
@@ -799,6 +850,7 @@ export default function Scene({
         }
       } else {
         controls.update();
+        keepTargetNearFence();
       }
 
       // Never below the grass. OrbitControls re-derives its angles from the
@@ -959,6 +1011,7 @@ export default function Scene({
       resizeObserver.disconnect();
       renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
       renderer.domElement.removeEventListener('pointerup', handlePointerUp);
+      renderer.domElement.removeEventListener('pointercancel', handlePointerCancel);
       renderer.domElement.removeEventListener('wheel', handleWheelZoom, true);
       controls.dispose();
       if (cameraSnapshotRef) cameraSnapshotRef.current = null;
