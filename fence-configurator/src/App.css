@@ -1225,3 +1225,77 @@ html,
 body {
   touch-action: pan-x pan-y;
 }
+
+/* Phones: full width with margins, pinned near the top. iOS keeps the
+   layout viewport full-height when the keyboard opens, so a vertically
+   centered dialog ends up half behind it. */
+@media (max-width: 700px) {
+  .value-popover.value-popover-wide {
+    top: 64px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-width: none;
+    box-sizing: border-box;
+    transform: none;
+  }
+}
+
+/* Time dial — moved out of an inline style so mobile can lift it above the dock tabs. */
+.time-dial {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 5;
+}
+
+/* Dock tabs — mobile only. A folded panel waits here as a bookmark. */
+.dock-tabs {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  /* Dynamic viewport height: excludes the mobile browser's own bars, so the
+     tabs at the very bottom are never hidden behind them. */
+  @supports (height: 100dvh) {
+    .app {
+      height: 100dvh;
+    }
+  }
+
+  .panel.panel-docked,
+  .bottom-sheet.sheet-docked {
+    display: none;
+  }
+
+  .dock-tabs {
+    position: absolute;
+    left: 12px;
+    bottom: 0;
+    z-index: 6;
+    display: flex;
+    gap: 6px;
+    direction: ltr;
+  }
+
+  .dock-tab {
+    width: 52px;
+    height: 40px;
+    border: none;
+    border-radius: 12px 12px 0 0;
+    background: rgba(58, 58, 58, 0.9);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.15);
+    cursor: pointer;
+  }
+  .dock-tab:active {
+    background: var(--brand-primary);
+  }
+
+  .time-dial.time-dial-raised {
+    bottom: 52px;
+  }
+}
