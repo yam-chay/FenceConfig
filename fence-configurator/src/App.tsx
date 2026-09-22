@@ -705,17 +705,17 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
               <button
                 type="button"
                 className="pill segment-action-btn"
-                onClick={addLegAtStart}
+                onClick={addLeg}
               >
-                הוסף מקטע בהתחלה +
+                הוסף מקטע בסוף +
               </button>
 
               <button
                 type="button"
                 className="pill segment-action-btn"
-                onClick={addLeg}
+                onClick={addLegAtStart}
               >
-                הוסף מקטע בסוף +
+                הוסף מקטע בהתחלה +
               </button>
 
               {shape.legs.length > 1 && (
