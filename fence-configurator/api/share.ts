@@ -2,21 +2,22 @@
  * POST /api/share        body: DesignSnapshot → { id }
  * GET  /api/share?id=…   → DesignSnapshot
  *
- * Upstash Redis via the Vercel Marketplace integration. The integration
- * names its env vars KV_REST_API_*; plain Upstash setups use UPSTASH_*.
+ * Upstash Redis via the Vercel Marketplace integration — see
+ * _lib/redisEnv.ts for which env var names are accepted.
  */
 
 import { Redis } from '@upstash/redis';
 import { handleCreate, handleRead, type ShareStore } from './_lib/shareHandler.js';
+import { resolveRedisEnv, redisEnvNames } from './_lib/redisEnv.js';
 
 // Read through globalThis: Vercel type-checks api/ with its own config, which
 // doesn't load @types/node, so a bare `process` fails its check.
 const env = (globalThis as unknown as { process: { env: Record<string, string | undefined> } }).process.env;
 
 function createStore(): ShareStore | null {
-  const url = env.KV_REST_API_URL ?? env.UPSTASH_REDIS_REST_URL;
-  const token = env.KV_REST_API_TOKEN ?? env.UPSTASH_REDIS_REST_TOKEN;
-  if (!url || !token) return null;
+  const creds = resolveRedisEnv(env);
+  if (!creds) return null;
+  const { url, token } = creds;
   // Keep values as raw strings — the default would JSON.parse them on read.
   const redis = new Redis({ url, token, automaticDeserialization: false });
   return {
@@ -29,7 +30,10 @@ const store = createStore();
 
 async function withStore(handler: (store: ShareStore) => Promise<Response>): Promise<Response> {
   const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };
-  if (!store) return new Response(JSON.stringify({ error: 'storage_not_configured' }), { status: 503, headers });
+  if (!store) {
+    const body = { error: 'storage_not_configured', envNamesSeen: redisEnvNames(env) };
+    return new Response(JSON.stringify(body), { status: 503, headers });
+  }
   try {
     return await handler(store);
   } catch (err) {
