@@ -1044,6 +1044,11 @@
   background: var(--brand-primary);
 }
 
+.share-link-btn:disabled {
+  opacity: 0.75;
+  cursor: progress;
+}
+
 .share-link-status {
   padding: 4px 10px;
   border-radius: 8px;
