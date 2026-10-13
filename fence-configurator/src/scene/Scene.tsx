@@ -897,6 +897,41 @@ export default function Scene({
     renderer.domElement.addEventListener('pointerup', handlePointerUp);
     renderer.domElement.addEventListener('pointercancel', handlePointerCancel);
 
+    // Right-drag pans and middle-drag dollies, so the browser's own
+    // right-click menu and middle-click autoscroll must never appear for a
+    // gesture that started on the canvas. OrbitControls only blocks the
+    // menu on the canvas itself, and only while it's enabled — so it still
+    // popped during a camera flight (controls disabled) and whenever the
+    // drag ended over a panel or button (Windows fires contextmenu on
+    // release, at the element under the pointer). The rest of the page
+    // keeps its normal menu (copy/paste in inputs).
+    //
+    // The gesture's button is remembered until the next press anywhere
+    // else: Windows fires contextmenu AFTER the release, so it can't be
+    // forgotten on pointerup, and a timer-based reset lost the race on a
+    // busy main thread.
+    let canvasGestureButton: number | null = null;
+    const handleAnyPointerDown = (e: PointerEvent) => {
+      if (e.target === renderer.domElement && e.pointerType === 'mouse' && (e.button === 1 || e.button === 2)) {
+        canvasGestureButton = e.button;
+      } else {
+        canvasGestureButton = null;
+      }
+    };
+    const handleMiddleDown = (e: MouseEvent) => {
+      if (e.button === 1) e.preventDefault(); // no autoscroll cursor
+    };
+    const handleContextMenu = (e: MouseEvent) => {
+      if (e.target === renderer.domElement || canvasGestureButton === 2) e.preventDefault();
+    };
+    const handleAuxClick = (e: MouseEvent) => {
+      if (e.button === 1 && (e.target === renderer.domElement || canvasGestureButton === 1)) e.preventDefault();
+    };
+    window.addEventListener('pointerdown', handleAnyPointerDown, true);
+    renderer.domElement.addEventListener('mousedown', handleMiddleDown);
+    window.addEventListener('contextmenu', handleContextMenu, true);
+    window.addEventListener('auxclick', handleAuxClick, true);
+
     // ---------- navigation gizmo ----------
     const gizmo = createViewGizmoScene(getComputedStyle(container).fontFamily || 'sans-serif');
     const gizmoEl = gizmoElRef?.current ?? null;
@@ -1320,6 +1355,10 @@ export default function Scene({
       renderer.domElement.removeEventListener('pointermove', handlePointerMove);
       renderer.domElement.removeEventListener('pointerup', handlePointerUp);
       renderer.domElement.removeEventListener('pointercancel', handlePointerCancel);
+      window.removeEventListener('pointerdown', handleAnyPointerDown, true);
+      renderer.domElement.removeEventListener('mousedown', handleMiddleDown);
+      window.removeEventListener('contextmenu', handleContextMenu, true);
+      window.removeEventListener('auxclick', handleAuxClick, true);
       renderer.domElement.removeEventListener('wheel', handleWheelZoom, true);
       controls.dispose();
       if (gizmoEl) {
