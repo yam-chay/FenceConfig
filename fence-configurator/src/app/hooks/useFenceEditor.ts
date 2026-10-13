@@ -67,8 +67,9 @@ export function useFenceEditor(
     // available yet. Both setters run in the same handler, so React
     // batches them into one render and one history entry.
     const next = { ...shape, legs: shape.legs.map((leg, i) => (i === legIndex ? updater(leg) : leg)) };
+    const resized = next.legs[legIndex].fenceHeightCm !== shape.legs[legIndex].fenceHeightCm;
     setShape(next);
-    reconcileFor(next);
+    reconcileFor(next, resized ? new Set([legIndex]) : undefined);
   }
 
   // Which of this leg's own two ends is a shared "middle" post (boards
@@ -165,8 +166,8 @@ export function useFenceEditor(
     return best !== null && bestDelta <= HEIGHT_MAP_TOLERANCE_CM ? best : null;
   }
 
-  function reconcileFor(nextShape: Shape) {
-    const next = reconcileRules(nextShape, colorScheme, profileScheme);
+  function reconcileFor(nextShape: Shape, resizedLegs?: ReadonlySet<number>) {
+    const next = reconcileRules(nextShape, colorScheme, profileScheme, resizedLegs);
     if (next.colorScheme !== colorScheme) setColorScheme(next.colorScheme);
     if (next.profileScheme !== profileScheme) setProfileScheme(next.profileScheme);
   }
