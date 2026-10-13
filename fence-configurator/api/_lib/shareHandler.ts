@@ -17,7 +17,7 @@ export interface ShareStore {
 
 /** A real design is a few KB; this only stops abuse of a public endpoint. */
 export const MAX_BODY_BYTES = 256 * 1024;
-export const ID_LENGTH = 8;
+const ID_LENGTH = 8;
 const ID_RE = new RegExp(`^[0-9A-Za-z]{${ID_LENGTH}}$`);
 const KEY_PREFIX = 'share:';
 /** Extra salted attempts if a content hash prefix collides with a different design. */
