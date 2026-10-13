@@ -45,8 +45,6 @@ const BUILD_SHA = (import.meta.env.VITE_VERCEL_GIT_COMMIT_SHA as string | undefi
 const BUILD_ENV = (import.meta.env.VITE_VERCEL_ENV as string | undefined) ?? 'development';
 const BUILD_BRANCH = (import.meta.env.VITE_VERCEL_GIT_COMMIT_REF as string | undefined) ?? '';
 const BUG_TOAST_MS = 3500;
-/** How long edits must settle before a newly overflowing step asks what to do. */
-const OVERFLOW_PROMPT_DELAY_MS = 450;
 
 // Mobile dock: the main panel and the edit sheet share one bottom slot.
 // Dropping either below this height folds it into a tab.
@@ -396,40 +394,9 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
   );
 
   // Closing-algorithm results per leg, from the same cached stacks the
-  // scene renders — the real built height, and any user-set top step that
-  // overflows the fence top.
+  // scene renders — drives the "בפועל" built-height readout. An overflowing
+  // user-set top step is shown by its red highlight in the scene alone.
   const legReports = useMemo(() => legStackReports(shape, profileScheme), [shape, profileScheme]);
-  const overflowingLegs = legReports.flatMap((r, i) => (r.overflowCm > 0 ? [i] : []));
-
-  // A leg that STARTS overflowing gets one popup asking what to do. Checked
-  // after edits settle, so dragging a slider through an overflow doesn't
-  // throw a dialog under the pointer; what's already overflowing on load
-  // only gets the banner.
-  const [overflowPromptLeg, setOverflowPromptLeg] = useState<number | null>(null);
-  const overflowSeenRef = useRef<boolean[] | null>(null);
-  useEffect(() => {
-    if (isView) return;
-    const now = legReports.map((r) => r.overflowCm > 0);
-    if (overflowSeenRef.current === null) {
-      overflowSeenRef.current = now;
-      return;
-    }
-    const id = window.setTimeout(() => {
-      const prev = overflowSeenRef.current ?? [];
-      overflowSeenRef.current = now;
-      const fresh = now.findIndex((o, i) => o && !prev[i]);
-      if (fresh >= 0) setOverflowPromptLeg(fresh);
-    }, OVERFLOW_PROMPT_DELAY_MS);
-    return () => window.clearTimeout(id);
-  }, [isView, legReports]);
-
-  const overflowPromptVisible = overflowPromptLeg !== null && (legReports[overflowPromptLeg]?.overflowCm ?? 0) > 0;
-
-  function raiseLegToFit(legIndex: number) {
-    const target = legReports[legIndex]?.builtFenceHeightCm;
-    setOverflowPromptLeg(null);
-    if (target !== undefined) updateLeg(legIndex, (l) => ({ ...l, fenceHeightCm: target }));
-  }
 
   // "יש לשדה הזה משהו לשחזר" — profile, spacer, או צבע. במקור זה בדק רק
   // profile/spacer, ולכן שדה עם צבע מותאם בלבד השאיר את הכפתור מושבת.
@@ -701,46 +668,6 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
                     autoFocus
                   >
                     ביטול
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
-
-          {!isView && overflowingLegs.length > 0 && !overflowPromptVisible && (
-            // Persistent, low-key: the red glow on the board says WHERE, this
-            // says what it means and offers the one-click way out.
-            <div className="overflow-banner" dir="rtl">
-              {overflowingLegs.map((legIndex) => (
-                <div key={legIndex} className="overflow-banner-row">
-                  <span>
-                    מקטע {legIndex + 1}: השלב העליון חורג מגובה הגדר ב־
-                    {formatTrimmed(legReports[legIndex].overflowCm, 1)} ס״מ
-                  </span>
-                  <button type="button" className="toast-undo" onClick={() => raiseLegToFit(legIndex)}>
-                    הגבה ל־{formatTrimmed(legReports[legIndex].builtFenceHeightCm, 1)}
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {!isView && overflowPromptVisible && overflowPromptLeg !== null && (
-            <>
-              <div className="value-popover-backdrop" onClick={() => setOverflowPromptLeg(null)} />
-              <div className="value-popover" role="dialog" aria-modal="true" dir="rtl">
-                <div className="value-popover-title">השלב העליון חורג מגובה הגדר</div>
-                <p className="value-popover-hint">
-                  השלב שנבחר במקטע {overflowPromptLeg + 1} עובר את גובה הגדר ב־
-                  {formatTrimmed(legReports[overflowPromptLeg].overflowCm, 1)} ס״מ, ולכן הוא מסומן באדום. אפשר להגביה את
-                  המקטע כך שיתאים לשלב, או לשנות את השלב בעצמך. תמיד אפשר לחזור אחורה עם כפתור החזור.
-                </p>
-                <div className="value-popover-actions">
-                  <button type="button" className="value-popover-apply" onClick={() => raiseLegToFit(overflowPromptLeg)}>
-                    הגבה ל־{formatTrimmed(legReports[overflowPromptLeg].builtFenceHeightCm, 1)} ס״מ
-                  </button>
-                  <button type="button" className="value-popover-cancel" onClick={() => setOverflowPromptLeg(null)} autoFocus>
-                    אשנה בעצמי
                   </button>
                 </div>
               </div>

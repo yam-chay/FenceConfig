@@ -1838,39 +1838,6 @@ body {
   }
 }
 
-/* Overflowing top step — persistent, deliberately calm (not an error toast). */
-.overflow-banner {
-  position: absolute;
-  top: 64px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-width: min(calc(100% - 32px), 460px);
-  z-index: 19;
-}
-
-.overflow-banner-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  background: rgba(255, 255, 255, 0.95);
-  color: #5c1d18;
-  border: 1px solid rgba(255, 59, 48, 0.35);
-  border-inline-start: 4px solid #ff3b30;
-  padding: 8px 12px;
-  border-radius: 10px;
-  font-size: 13px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
-}
-
-.overflow-banner-row .toast-undo {
-  color: #b3261e;
-  border-color: rgba(179, 38, 30, 0.4);
-  flex-shrink: 0;
-}
-
 .built-height {
   font-weight: 400;
   opacity: 0.7;
