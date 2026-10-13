@@ -150,6 +150,23 @@ const ENV_LAYER = 1;
 /** Fade between the 3D world and drawing mode's flat backdrop. */
 const DRAWING_FADE_MS = 280;
 const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+/**
+ * Drawing mode lights the fence like the default noon view, whatever the
+ * time-of-day dial says — at dusk or night the sun/moon would otherwise
+ * wash its colors out or dull them.
+ */
+const DRAWING_LIGHT = sampleDayNight(12);
+const DRAWING_LIGHT_DIR = skyDirectionForHour(12).normalize();
+/**
+ * Scales noon's environment reflection down for drawing mode. An
+ * orthographic camera looks at every board face-on, so the aluminum
+ * mirrors the brightest part of the environment straight back and full
+ * noon reflection renders the fence about twice as light as its swatch.
+ * Calibrated against the swatches: anthracite #3a3f44 renders ≈ (62,66,69)
+ * and white #e8e6e1 ≈ (194,193,189), each within ~10% of the regular
+ * noon view.
+ */
+const DRAWING_ENV_SCALE = 0.2;
 
 export default function Scene({
   shape,
@@ -1028,11 +1045,45 @@ export default function Scene({
       scene.background = null;
       scene.fog = null;
       cam.layers.disable(ENV_LAYER);
+      const restoreLights = applyDrawingLights(drawingBlend);
       renderer.render(scene, cam);
+      restoreLights();
       cam.layers.enable(ENV_LAYER);
       scene.background = background;
       scene.fog = fog;
       renderer.autoClear = true;
+    };
+    /**
+     * Blends the lights toward DRAWING_LIGHT for the fence pass only and
+     * returns the undo. The day/night effect stays the owner of the real
+     * values — nothing here outlives the pass.
+     */
+    const applyDrawingLights = (blend: number) => {
+      const saved = {
+        ambientColor: ambient.color.clone(),
+        ambientIntensity: ambient.intensity,
+        skyColor: sky.color.clone(),
+        skyIntensity: sky.intensity,
+        skyPosition: sky.position.clone(),
+        envIntensity: scene.environmentIntensity,
+      };
+      const lightTarget = sky.target.position;
+      const lightDistance = sky.position.distanceTo(lightTarget);
+      const worldDir = sky.position.clone().sub(lightTarget).normalize();
+      ambient.color.lerp(DRAWING_LIGHT.ambientColor, blend);
+      ambient.intensity = THREE.MathUtils.lerp(ambient.intensity, DRAWING_LIGHT.ambientIntensity, blend);
+      sky.color.lerp(DRAWING_LIGHT.sunColor, blend);
+      sky.intensity = THREE.MathUtils.lerp(sky.intensity, DRAWING_LIGHT.sunIntensity, blend);
+      sky.position.copy(lightTarget).addScaledVector(worldDir.lerp(DRAWING_LIGHT_DIR, blend).normalize(), lightDistance);
+      scene.environmentIntensity = THREE.MathUtils.lerp(scene.environmentIntensity, DRAWING_LIGHT.envIntensity * DRAWING_ENV_SCALE, blend);
+      return () => {
+        ambient.color.copy(saved.ambientColor);
+        ambient.intensity = saved.ambientIntensity;
+        sky.color.copy(saved.skyColor);
+        sky.intensity = saved.skyIntensity;
+        sky.position.copy(saved.skyPosition);
+        scene.environmentIntensity = saved.envIntensity;
+      };
     };
     /** One full frame: main view (whichever projection), then the gizmo. Returns the fence pass's own render stats. */
     const renderFrame = () => {
