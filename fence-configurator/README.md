@@ -11,6 +11,12 @@ npm install
 npm run dev
 ```
 
+### קישורי צפייה קצרים (`/v/<id>`)
+
+`api/share.ts` שומר snapshot ב-Upstash Redis ומחזיר id קצר. `npm run dev` לא מריץ את ה-API —
+שם הכפתור נופל אוטומטית ללינק הארוך (`#view=`), ולינקים קצרים לא ייפתחו. לבדיקה מלאה מקומית:
+`vercel env pull .env.local && vercel dev`.
+
 ## מה יש כאן
 
 - `src/geometry/` — מתמטיקה טהורה, בלי תלות ב-Three.js:
