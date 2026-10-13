@@ -4,10 +4,7 @@
  * stored server-side by /api/share), and the legacy URL-hash view link
  * (#view=…), which is also the fallback when the server is unreachable.
  *
- * RULE: bump SNAPSHOT_VERSION only on an incompatible change to Shape or
- * the rule types. A bump silently drops old local saves AND breaks every
- * view link already sent — once links reach customers, add a migration
- * instead of bumping.
+ * The format and its versioning RULE live in snapshot.ts.
  */
 
 import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from 'lz-string';
@@ -15,7 +12,7 @@ import type { Shape } from '../geometry/shape';
 import type { ColorScheme, ProfileScheme } from '../scene/Scene';
 import { SNAPSHOT_VERSION, isValidSnapshot, type DesignSnapshot } from './snapshot';
 
-export { SNAPSHOT_VERSION, isValidSnapshot, type DesignSnapshot };
+export type { DesignSnapshot };
 
 const STORAGE_KEY = 'mld-fence-sim:design';
 const VIEW_HASH_PREFIX = '#view=';

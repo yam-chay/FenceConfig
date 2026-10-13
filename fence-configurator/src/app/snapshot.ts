@@ -10,6 +10,12 @@ import type { Shape, Leg } from '../geometry/shapeTypes.js';
 import type { ColorScheme, ProfileScheme } from '../scene/types.js';
 import { FENCE_CATALOG } from '../geometry/catalog.js';
 
+/**
+ * RULE: bump only on an incompatible change to Shape or the rule types. A
+ * bump silently drops old local saves AND breaks every view link already
+ * sent — hash links and the snapshots stored in Redis for /v/<id> alike.
+ * Once links reach customers, add a migration instead of bumping.
+ */
 export const SNAPSHOT_VERSION = 1;
 
 export interface DesignSnapshot {
