@@ -14,6 +14,9 @@ import {
   CLOUD_AZIMUTH_SPAN_DEG,
   CLOUD_DRIFT_DEG_PER_SEC,
   CLOUD_SHADOW_Y_OFFSET_M,
+  CLOUD_SHADOW_RENDER_ORDER,
+  CLOUD_BRIGHT_RENDER_ORDER,
+  SKY_HALO_RENDER_ORDER,
   CLOUD_SCALE_MIN,
   CLOUD_SCALE_MAX,
   cloudPositionForAzimuth,
@@ -588,6 +591,8 @@ export default function Scene({
     moonGlow.scale.set(7, 7, 1);
     sunGlowRef.current = sunGlow;
     moonGlowRef.current = moonGlow;
+    sunGlow.renderOrder = SKY_HALO_RENDER_ORDER;
+    moonGlow.renderOrder = SKY_HALO_RENDER_ORDER;
     scene.add(sunGlow, moonGlow);
     disableFog(
       sunMesh.material as THREE.Material,
@@ -638,6 +643,8 @@ export default function Scene({
           new THREE.SpriteMaterial({ map: cloudTexture, transparent: true, depthWrite: false, opacity: 0.5 }),
         );
         shadow.scale.set(scale * 1.15, scale * 0.7, 1);
+        bright.renderOrder = CLOUD_BRIGHT_RENDER_ORDER;
+        shadow.renderOrder = CLOUD_SHADOW_RENDER_ORDER;
 
         scene.add(bright, shadow);
         disableFog(bright.material, shadow.material);
