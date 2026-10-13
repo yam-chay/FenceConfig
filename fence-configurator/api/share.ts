@@ -9,9 +9,13 @@
 import { Redis } from '@upstash/redis';
 import { handleCreate, handleRead, type ShareStore } from './_lib/shareHandler.js';
 
+// Read through globalThis: Vercel type-checks api/ with its own config, which
+// doesn't load @types/node, so a bare `process` fails its check.
+const env = (globalThis as unknown as { process: { env: Record<string, string | undefined> } }).process.env;
+
 function createStore(): ShareStore | null {
-  const url = process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN;
+  const url = env.KV_REST_API_URL ?? env.UPSTASH_REDIS_REST_URL;
+  const token = env.KV_REST_API_TOKEN ?? env.UPSTASH_REDIS_REST_TOKEN;
   if (!url || !token) return null;
   // Keep values as raw strings — the default would JSON.parse them on read.
   const redis = new Redis({ url, token, automaticDeserialization: false });
