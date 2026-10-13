@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'; import { type Shape } from '../geometry/shape';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'; import { type Shape, legTopHeightCm } from '../geometry/shape';
 import type { Selection, ColorScheme, ProfileScheme, FrameTarget, LegBounds } from './types';
 import { VIEW_DIRECTION, CAMERA_FORWARD_AZIMUTH_RAD } from './constants';
 import { drawSkyGradient, skyDirectionForHour, sampleDayNight } from './environment/dayNightCycle';
@@ -1237,8 +1237,10 @@ sky.shadow.radius = THREE.MathUtils.lerp(
     const focusDiff = isFirstBuild ? null : diffFocusLegs(previousShape!, shape);
     prevShapeRef.current = shape;
 
-    let wallHeightOnlyEdit = false;
-    let fenceHeightOnlyEdit = false;
+    // Wall OR fence height edit, nothing else. Both now move the fence's
+    // top (a wall edit lifts the whole fence as one unit), so both get the
+    // same gentle height-follow below.
+    let heightOnlyEdit = false;
 
     if (!isFirstBuild && previousShape) {
       const sameLegCount =
@@ -1262,17 +1264,12 @@ sky.shadow.radius = THREE.MathUtils.lerp(
 
           hasLengthChange ||= prevLeg.lengthM !== nextLeg.lengthM;
           hasBaseHeightChange ||= prevLeg.baseHeightCm !== nextLeg.baseHeightCm;
-          hasHeightChange ||= prevLeg.heightCm !== nextLeg.heightCm;
+          hasHeightChange ||= prevLeg.fenceHeightCm !== nextLeg.fenceHeightCm;
         }
 
-        wallHeightOnlyEdit =
+        heightOnlyEdit =
           !hasLengthChange &&
-          hasBaseHeightChange;
-
-        fenceHeightOnlyEdit =
-          !hasLengthChange &&
-          !hasBaseHeightChange &&
-          hasHeightChange;
+          (hasBaseHeightChange || hasHeightChange);
       }
     }
 
@@ -1288,16 +1285,6 @@ sky.shadow.radius = THREE.MathUtils.lerp(
 
     prevSelectionRef.current = selection;
 
-    /*
- * Height sliders should not cause a full camera refocus.
- *
- * Wall height:
- * Keep the camera completely untouched.
- */
-    if (wallHeightOnlyEdit) {
-      return;
-    }
-
     if (focusDiff === null) {
       // Nothing structural changed — a color pick, or an edit sheet just
       // closed. Closing a sheet used to step the camera back to a window
@@ -1308,8 +1295,9 @@ sky.shadow.radius = THREE.MathUtils.lerp(
       return;
     }
 
-    if (fenceHeightOnlyEdit) {
-      const currentTopM = Math.max(0, ...shape.legs.map((leg) => leg.heightCm / 100));
+    // Height sliders (wall or fence) never cause a full camera refocus.
+    if (heightOnlyEdit) {
+      const currentTopM = Math.max(0, ...shape.legs.map((leg) => legTopHeightCm(leg) / 100));
       const currentTarget = controlsRef.current?.target;
 
       // Ease toward the fence's own mid-height rather than nudging by the

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { Shape, Leg, Junction } from '../../geometry/shape';
-import { fieldCountForLeg } from '../../geometry/shape';
+import { fieldCountForLeg, legFillHeightCm } from '../../geometry/shape';
 import { computeBoardStack } from '../../geometry/field';
 import { DEFAULT_MODEL_ID, DEFAULT_SIZE_ID } from '../../geometry/catalog';
 import { reconcileRules, HEIGHT_MAP_TOLERANCE_CM } from '../reconcileRules';
@@ -31,6 +31,9 @@ import { FENCE_COLORS } from '../defaults';
  * applyToAllFields) and the apply-to-fence toast state internally, since
  * nothing outside fence editing touches them.
  */
+/** One fan-out target of a rule write. anchorHeightCm is relative to THAT target leg's fence base. */
+type RuleTarget = { legIndex: number; fieldIndex: number; stepIndex: number; anchorHeightCm: number; derived?: true };
+
 export function useFenceEditor(
   shape: Shape,
   setShape: Dispatch<SetStateAction<Shape>>,
@@ -83,17 +86,31 @@ export function useFenceEditor(
 
   // Fan-out targets for one rule write. The clicked field keeps the step
   // the user actually clicked; every other field gets the step sitting at
-  // the same ABSOLUTE HEIGHT in its own stack — which is what makes a
-  // painted band stay level across fields on different wall heights,
-  // instead of climbing with the wall the way step-index copying did.
-    function ruleTargets(
+  // the same ABSOLUTE HEIGHT (from the ground) in its own stack at the
+  // moment of writing — which is what makes a painted band stay level
+  // across fields on different wall heights.
+  //
+  // Each target's anchor is then stored RELATIVE to its own leg's fence
+  // base (see BoardColorRule.anchorHeightCm): the band is level when
+  // painted, but from then on it belongs to its own leg — raising that
+  // leg's wall carries its boards and their colors up with it, and never
+  // touches any other leg.
+  function ruleTargets(
     legIndex: number,
     fieldIndex: number,
     stepIndex: number,
-  ): { legIndex: number; fieldIndex: number; stepIndex: number; derived?: true }[] {
-    if (!applyToAllFields) return [{ legIndex, fieldIndex, stepIndex }];
+  ): RuleTarget[] {
+    const absoluteCm = anchorFor(stepIndex);
+    const own = (li: number, fi: number, si: number, derived?: true): RuleTarget => ({
+      legIndex: li,
+      fieldIndex: fi,
+      stepIndex: si,
+      anchorHeightCm: absoluteCm - shape.legs[li].baseHeightCm,
+      ...(derived ? { derived } : {}),
+    });
+    if (!applyToAllFields) return [own(legIndex, fieldIndex, stepIndex)];
 
-    const refs: { legIndex: number; fieldIndex: number; stepIndex: number; derived?: true }[] = [];
+    const refs: RuleTarget[] = [];
 
     // Step 0 is STRUCTURAL, not positional: it's the seam against the
     // rosette, and every field has exactly one regardless of height. So it
@@ -103,46 +120,46 @@ export function useFenceEditor(
     if (stepIndex === 0) {
       const count = fieldCountForLegAt(legIndex, shape.legs[legIndex].lengthM);
       for (let fi = 0; fi < count; fi++) {
-        if (fi === fieldIndex) refs.push({ legIndex, fieldIndex: fi, stepIndex: 0 });
-        else refs.push({ legIndex, fieldIndex: fi, stepIndex: 0, derived: true });
+        refs.push(own(legIndex, fi, 0, fi === fieldIndex ? undefined : true));
       }
       return refs;
     }
 
-    const anchorHeightCm = anchorFor(stepIndex);
     shape.legs.forEach((leg, li) => {
       const count = fieldCountForLegAt(li, leg.lengthM);
       for (let fi = 0; fi < count; fi++) {
         if (li === legIndex && fi === fieldIndex) {
-          refs.push({ legIndex: li, fieldIndex: fi, stepIndex });
+          refs.push(own(li, fi, stepIndex));
           continue;
         }
-        const mapped = stepIndexAtHeight(li, fi, anchorHeightCm);
+        const mapped = stepIndexAtHeight(li, fi, absoluteCm - leg.baseHeightCm);
         if (mapped === null) continue;
-        refs.push({ legIndex: li, fieldIndex: fi, stepIndex: mapped, derived: true });
+        refs.push(own(li, fi, mapped, true));
       }
     });
     return refs;
   }
 
+  /** Absolute height (cm, from the ground) of a selected step, as clicked. */
   function anchorFor(stepIndex: number): number {
     if (selection?.kind !== 'board') return 0;
     return selection.stepHeights[stepIndex] ?? selection.heightCm;
   }
 
-  // Which step in THIS field currently sits closest to a given absolute
-  // height. Null when nothing is within tolerance — that field simply has
-  // no board there, so it gets no rule at all rather than a wrong one.
-  function stepIndexAtHeight(legIndex: number, fieldIndex: number, anchorHeightCm: number): number | null {
+  // Which step in THIS field currently sits closest to a given height,
+  // measured from this leg's own fence base (top of its wall). Null when
+  // nothing is within tolerance — that field simply has no board there, so
+  // it gets no rule at all rather than a wrong one.
+  function stepIndexAtHeight(legIndex: number, fieldIndex: number, fenceRelativeCm: number): number | null {
     const leg = shape.legs[legIndex];
     if (!leg) return null;
-    const stack = computeBoardStack(leg.heightCm - leg.baseHeightCm, (i) =>
+    const stack = computeBoardStack(legFillHeightCm(leg), (i) =>
       resolveBoardStepCandidates(profileScheme, legIndex, fieldIndex, i, leg.modelId, leg.sizeId),
     );
     let best: number | null = null;
     let bestDelta = Infinity;
     stack.boards.forEach((b, i) => {
-      const delta = Math.abs(leg.baseHeightCm + b.centerCm - anchorHeightCm);
+      const delta = Math.abs(b.centerCm - fenceRelativeCm);
       if (delta < bestDelta) {
         bestDelta = delta;
         best = i;
@@ -189,7 +206,7 @@ export function useFenceEditor(
           {
             lengthM: 3,
             baseHeightCm: last.baseHeightCm,
-            heightCm: last.heightCm,
+            fenceHeightCm: last.fenceHeightCm,
             modelId: last.modelId,
             sizeId: last.sizeId,
             wallWidthCm: last.wallWidthCm,
@@ -248,7 +265,7 @@ export function useFenceEditor(
           {
             lengthM: 3,
             baseHeightCm: first.baseHeightCm,
-            heightCm: first.heightCm,
+            fenceHeightCm: first.fenceHeightCm,
             modelId: first.modelId,
             sizeId: first.sizeId,
             wallWidthCm: first.wallWidthCm,
@@ -317,7 +334,7 @@ export function useFenceEditor(
       ...prev,
       boardRules: [
         ...prev.boardRules,
-        ...targets.map((t) => ({ anchorHeightCm: anchorFor(stepIndex), colorHex, direction, scope: 'field' as const, ...t })),
+        ...targets.map((t) => ({ colorHex, direction, scope: 'field' as const, ...t })),
       ],
     }));
   }
@@ -331,7 +348,6 @@ export function useFenceEditor(
         ...prev.boardRules,
         ...stepIndices.flatMap((stepIndex) =>
           ruleTargets(sel.legIndex, sel.fieldIndex, stepIndex).map((t) => ({
-            anchorHeightCm: anchorFor(stepIndex),
             colorHex,
             direction: 'exact' as const,
             scope: 'field' as const,
@@ -364,7 +380,7 @@ export function useFenceEditor(
       ...prev,
       rules: [
         ...prev.rules,
-        ...targets.map((t) => ({ anchorHeightCm: anchorFor(stepIndex), modelId, sizeId, direction, scope: 'field' as const, ...t })),
+        ...targets.map((t) => ({ modelId, sizeId, direction, scope: 'field' as const, ...t })),
       ],
     }));
   }
@@ -378,7 +394,6 @@ export function useFenceEditor(
         ...prev.rules,
         ...stepIndices.flatMap((stepIndex) =>
           ruleTargets(sel.legIndex, sel.fieldIndex, stepIndex).map((t) => ({
-            anchorHeightCm: anchorFor(stepIndex),
             modelId,
             sizeId,
             direction: 'exact' as const,
@@ -430,7 +445,7 @@ export function useFenceEditor(
       ...prev,
       spacerRules: [
         ...prev.spacerRules,
-        ...targets.map((t) => ({ anchorHeightCm: anchorFor(stepIndex), multiplier, direction, scope: 'field' as const, ...t })),
+        ...targets.map((t) => ({ multiplier, direction, scope: 'field' as const, ...t })),
       ],
     }));
   }
@@ -444,7 +459,6 @@ export function useFenceEditor(
         ...prev.spacerRules,
         ...stepIndices.flatMap((stepIndex) =>
           ruleTargets(sel.legIndex, sel.fieldIndex, stepIndex).map((t) => ({
-            anchorHeightCm: anchorFor(stepIndex),
             multiplier,
             direction: 'exact' as const,
             scope: 'field' as const,
@@ -521,13 +535,13 @@ export function useFenceEditor(
   // scoping mechanisms multiply each other makes neither predictable.
   //
   // Copying stays 1:1 by stepIndex here, unlike the toggle's height
-  // mapping — fields of one leg share a base height and a closing height,
+  // mapping — fields of one leg share a base height and a fence height,
   // so step N is at the same physical height in all of them anyway.
   function applyFieldToSegment() {
     if (selection?.kind !== 'board') return;
     const { legIndex: sourceLegIndex, fieldIndex: sourceFieldIndex } = selection;
     const sourceLeg = shape.legs[sourceLegIndex];
-    const sourceFillHeightCm = sourceLeg.heightCm - sourceLeg.baseHeightCm;
+    const sourceFillHeightCm = legFillHeightCm(sourceLeg);
 
     const sourceStack = computeBoardStack(sourceFillHeightCm, (stepIndex) =>
       resolveBoardStepCandidates(profileScheme, sourceLegIndex, sourceFieldIndex, stepIndex, sourceLeg.modelId, sourceLeg.sizeId),
@@ -543,7 +557,7 @@ export function useFenceEditor(
     for (let targetFieldIndex = 0; targetFieldIndex < fieldCount; targetFieldIndex++) {
       if (targetFieldIndex === sourceFieldIndex) continue;
       for (const board of sourceStack.boards) {
-        const anchorHeightCm = sourceLeg.baseHeightCm + board.centerCm;
+        const anchorHeightCm = board.centerCm;
         newProfileRules.push({
           stepIndex: board.stepIndex,
           anchorHeightCm,

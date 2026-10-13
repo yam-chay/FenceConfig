@@ -3,17 +3,22 @@
  * localStorage (autosave in the editor) and the URL hash (view-only link).
  *
  * RULE: bump SNAPSHOT_VERSION only on an incompatible change to Shape or
- * the rule types. A bump silently drops old local saves AND breaks every
- * view link already sent — once links reach customers, add a migration
- * instead of bumping.
+ * the rule types, and ALWAYS add a migration from the previous version
+ * alongside it (see migrateV1) — a bump without one silently drops old
+ * local saves AND breaks every view link already sent.
+ *
+ * v2: Leg.heightCm (top height from the GROUND) became Leg.fenceHeightCm
+ * (the product's own height: wall top → cap top), and field-scoped rule
+ * anchors became relative to their leg's fence base instead of the ground.
  */
 
 import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from 'lz-string';
 import type { Shape, Leg } from '../geometry/shape';
 import type { ColorScheme, ProfileScheme } from '../scene/Scene';
 import { FENCE_CATALOG } from '../geometry/catalog';
+import { POST_CAP_HEIGHT_CM } from '../geometry/constants';
 
-export const SNAPSHOT_VERSION = 1;
+export const SNAPSHOT_VERSION = 2;
 const STORAGE_KEY = 'mld-fence-sim:design';
 const VIEW_HASH_PREFIX = '#view=';
 
@@ -61,7 +66,7 @@ function isLeg(x: unknown): x is Leg {
     isObj(x) &&
     isNum(x.lengthM) &&
     isNum(x.baseHeightCm) &&
-    isNum(x.heightCm) &&
+    isNum(x.fenceHeightCm) &&
     isNum(x.wallWidthCm) &&
     catalogHas(x.modelId, x.sizeId)
   );
@@ -112,10 +117,63 @@ export function isValidSnapshot(x: unknown): x is DesignSnapshot {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Migrations — each takes the raw previous-version object and returns the
+// raw next-version one; validation still runs on the result. Mutation-free.
+// ---------------------------------------------------------------------------
+
+const roundCm = (n: number) => Math.round(n * 1000) / 1000;
+
+/**
+ * v1 → v2. Old heightCm included the wall; the fence itself was
+ * (heightCm − baseHeightCm) up to the post body's top, with the cap above
+ * it. The new fenceHeightCm includes the cap, so it's added back here —
+ * the board stack every old design fills stays identical. Field-scoped
+ * rule anchors drop their leg's wall height to become fence-relative.
+ */
+function migrateV1(x: Rec): Rec {
+  if (!isObj(x.shape) || !Array.isArray(x.shape.legs)) return x;
+  const legs = x.shape.legs as unknown[];
+  const baseOf = (legIndex: unknown): number => {
+    const leg = isNum(legIndex) ? legs[legIndex] : undefined;
+    return isObj(leg) && isNum(leg.baseHeightCm) ? leg.baseHeightCm : 0;
+  };
+  const migrateLeg = (leg: unknown) => {
+    if (!isObj(leg) || !isNum(leg.heightCm) || !isNum(leg.baseHeightCm)) return leg;
+    const { heightCm, ...rest } = leg;
+    return { ...rest, fenceHeightCm: roundCm(heightCm - leg.baseHeightCm + POST_CAP_HEIGHT_CM) };
+  };
+  const migrateRules = (rules: unknown) =>
+    Array.isArray(rules)
+      ? rules.map((r) =>
+          isObj(r) && r.scope === 'field' && isNum(r.anchorHeightCm)
+            ? { ...r, anchorHeightCm: roundCm(r.anchorHeightCm - baseOf(r.legIndex)) }
+            : r,
+        )
+      : rules;
+  const color = isObj(x.colorScheme) ? x.colorScheme : null;
+  const profile = isObj(x.profileScheme) ? x.profileScheme : null;
+  return {
+    ...x,
+    v: 2,
+    shape: { ...x.shape, legs: legs.map(migrateLeg) },
+    colorScheme: color ? { ...color, boardRules: migrateRules(color.boardRules) } : x.colorScheme,
+    profileScheme: profile
+      ? { ...profile, rules: migrateRules(profile.rules), spacerRules: migrateRules(profile.spacerRules) }
+      : x.profileScheme,
+  };
+}
+
+/** Brings any known older snapshot up to SNAPSHOT_VERSION; unknown input passes through to fail validation. */
+export function migrateSnapshot(x: unknown): unknown {
+  if (isObj(x) && x.v === 1) return migrateV1(x);
+  return x;
+}
+
 function parseSnapshot(json: string | null): DesignSnapshot | null {
   if (!json) return null;
   try {
-    const parsed: unknown = JSON.parse(json);
+    const parsed: unknown = migrateSnapshot(JSON.parse(json));
     return isValidSnapshot(parsed) ? parsed : null;
   } catch {
     return null;

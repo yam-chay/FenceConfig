@@ -1,5 +1,16 @@
-import type { Shape, ShapeLayout, FieldPlacement, PostPlacement } from './shapeTypes';
+import type { Leg, Shape, ShapeLayout, FieldPlacement, PostPlacement } from './shapeTypes';
 import { splitLegIntoFields } from './fieldCalculator';
+import { POST_CAP_HEIGHT_CM } from './constants';
+
+/** Height (cm) the board stack fills — the post body, i.e. the fence height minus the cap on top. Never depends on baseHeightCm. Rounded to a micrometre: fenceHeightCm − 0.4 can land a hair under an exact board-stack total in floating point (e.g. 116.79999999999998), which would drop the top board. */
+export function legFillHeightCm(leg: Leg): number {
+  return Math.max(0, Math.round((leg.fenceHeightCm - POST_CAP_HEIGHT_CM) * 1e4) / 1e4);
+}
+
+/** Height (cm) of the fence's top (cap included) above the ground. */
+export function legTopHeightCm(leg: Leg): number {
+  return leg.baseHeightCm + leg.fenceHeightCm;
+}
 
 const TURN_RAD: Record<'left' | 'right' | 'straight', number> = {
   left: Math.PI / 2,
@@ -26,14 +37,14 @@ export function layoutShape(shape: Shape): ShapeLayout {
     heading,
     rosetteEnd: 'start',
     baseHeightCm: firstLeg.baseHeightCm,
-    heightCm: firstLeg.heightCm - firstLeg.baseHeightCm,
+    heightCm: legFillHeightCm(firstLeg),
   });
 
   shape.legs.forEach((leg, legIndex) => {
     const startIsMiddle = legIndex > 0 && shape.junctions[legIndex - 1]?.type !== 'disconnect';
     const endIsMiddle = legIndex < shape.legs.length - 1 && shape.junctions[legIndex]?.type !== 'disconnect';
     const { fieldLengthM, fieldCount, boardLengthM } = splitLegIntoFields(leg.lengthM, startIsMiddle, endIsMiddle);
-    const fillHeightCm = leg.heightCm - leg.baseHeightCm;
+    const fillHeightCm = legFillHeightCm(leg);
 
     for (let f = 0; f < fieldCount; f++) {
       const midX = x + (Math.cos(heading) * fieldLengthM) / 2;
@@ -98,14 +109,18 @@ export function layoutShape(shape: Shape): ShapeLayout {
         heading,
         rosetteEnd: 'start',
         baseHeightCm: nextLeg.baseHeightCm,
-        heightCm: nextLeg.heightCm - nextLeg.baseHeightCm,
+        heightCm: legFillHeightCm(nextLeg),
       });
       return;
     }
 
     const newHeading = heading + TURN_RAD[junction.type];
     const mergedBaseHeightCm = Math.min(leg.baseHeightCm, nextLeg.baseHeightCm);
-    const mergedTopHeightCm = Math.max(leg.heightCm, nextLeg.heightCm);
+    // Post body top, cap excluded — each leg's own wall top + its fill.
+    const mergedTopHeightCm = Math.max(
+      leg.baseHeightCm + legFillHeightCm(leg),
+      nextLeg.baseHeightCm + legFillHeightCm(nextLeg),
+    );
     posts.push({
       index: posts.length,
       legIndices: [legIndex, legIndex + 1],

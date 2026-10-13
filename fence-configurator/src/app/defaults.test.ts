@@ -27,23 +27,20 @@ describe('defaultShape / defaultColorScheme / defaultProfileScheme — golden ba
 });
 
 describe('heightForBoardCount — golden baseline', () => {
-  it('base 0, one board', () => {
-    expect(heightForBoardCount(0, 1, 7, 1)).toBe(golden.heightForBoardCount.baseZero_oneBoard);
+  it('one board', () => {
+    expect(heightForBoardCount(1, 7, 1)).toBe(golden.heightForBoardCount.oneBoard);
   });
-  it('base 0, five boards', () => {
-    expect(heightForBoardCount(0, 5, 7, 1)).toBe(golden.heightForBoardCount.baseZero_fiveBoards);
-  });
-  it('non-zero base, five boards', () => {
-    expect(heightForBoardCount(35, 5, 7, 1)).toBe(golden.heightForBoardCount.baseNonZero_fiveBoards);
+  it('five boards', () => {
+    expect(heightForBoardCount(5, 7, 1)).toBe(golden.heightForBoardCount.fiveBoards);
   });
   it('boardCount 0 is treated as 1 (never fewer than one board)', () => {
-    expect(heightForBoardCount(0, 0, 7, 1)).toBe(golden.heightForBoardCount.boardCountZero_treatedAsOne);
+    expect(heightForBoardCount(0, 7, 1)).toBe(golden.heightForBoardCount.boardCountZero_treatedAsOne);
   });
   it('negative boardCount is also treated as 1', () => {
-    expect(heightForBoardCount(0, -3, 7, 1)).toBe(golden.heightForBoardCount.boardCountNegative_treatedAsOne);
+    expect(heightForBoardCount(-3, 7, 1)).toBe(golden.heightForBoardCount.boardCountNegative_treatedAsOne);
   });
   it('a different board/spacer dims pair', () => {
-    expect(heightForBoardCount(10, 14, 4, 1)).toBe(golden.heightForBoardCount.differentDims);
+    expect(heightForBoardCount(14, 4, 1)).toBe(golden.heightForBoardCount.differentDims);
   });
 });
 
@@ -57,9 +54,9 @@ describe('defaults — invariants', () => {
     expect(defaultColorScheme().boardRules).toEqual([]);
   });
   it('heightForBoardCount is monotonically non-decreasing in boardCount', () => {
-    const h1 = heightForBoardCount(0, 1, 7, 1);
-    const h2 = heightForBoardCount(0, 2, 7, 1);
-    const h3 = heightForBoardCount(0, 3, 7, 1);
+    const h1 = heightForBoardCount(1, 7, 1);
+    const h2 = heightForBoardCount(2, 7, 1);
+    const h3 = heightForBoardCount(3, 7, 1);
     expect(h2).toBeGreaterThan(h1);
     expect(h3).toBeGreaterThan(h2);
   });

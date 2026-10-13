@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { layoutShape, fieldCountForLeg, type Shape } from '../../geometry/shape';
+import { layoutShape, fieldCountForLeg, legTopHeightCm, type Shape } from '../../geometry/shape';
 import { computeBoardStack } from '../../geometry/field';
 import { buildPostSpec, activeGrooveFaces } from '../../geometry/post';
 import {
@@ -177,7 +177,7 @@ export function buildFenceMeshes(
   let maxX = -Infinity;
   let minZ = Infinity;
   let maxZ = -Infinity;
-  const maxTopHeightM = Math.max(0, ...shape.legs.map((leg) => leg.heightCm / 100));
+  const maxTopHeightM = Math.max(0, ...shape.legs.map((leg) => legTopHeightCm(leg) / 100));
 
   for (const post of layout.posts) {
     const baseM = post.baseHeightCm / 100;

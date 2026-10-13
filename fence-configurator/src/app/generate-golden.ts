@@ -18,12 +18,11 @@ out.fenceColorsLength = FENCE_COLORS.length;
 out.fenceColorsFirst = FENCE_COLORS[0];
 
 out.heightForBoardCount = {
-  baseZero_oneBoard: heightForBoardCount(0, 1, 7, 1),
-  baseZero_fiveBoards: heightForBoardCount(0, 5, 7, 1),
-  baseNonZero_fiveBoards: heightForBoardCount(35, 5, 7, 1),
-  boardCountZero_treatedAsOne: heightForBoardCount(0, 0, 7, 1),
-  boardCountNegative_treatedAsOne: heightForBoardCount(0, -3, 7, 1),
-  differentDims: heightForBoardCount(10, 14, 4, 1),
+  oneBoard: heightForBoardCount(1, 7, 1),
+  fiveBoards: heightForBoardCount(5, 7, 1),
+  boardCountZero_treatedAsOne: heightForBoardCount(0, 7, 1),
+  boardCountNegative_treatedAsOne: heightForBoardCount(-3, 7, 1),
+  differentDims: heightForBoardCount(14, 4, 1),
 };
 
 out.roundToDecimals = {

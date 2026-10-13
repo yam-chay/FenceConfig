@@ -5,7 +5,7 @@ function legsEqual(a: Leg, b: Leg): boolean {
   return (
     a.lengthM === b.lengthM &&
     a.baseHeightCm === b.baseHeightCm &&
-    a.heightCm === b.heightCm &&
+    a.fenceHeightCm === b.fenceHeightCm &&
     a.modelId === b.modelId &&
     a.sizeId === b.sizeId &&
     a.wallWidthCm === b.wallWidthCm
@@ -43,7 +43,7 @@ export function diffFocusLegs(prev: Shape, next: Shape): { legIndices: number[];
   for (let i = 0; i < next.legs.length; i++) {
     const a = prev.legs[i];
     const b = next.legs[i];
-    if (a.lengthM !== b.lengthM || a.baseHeightCm !== b.baseHeightCm || a.heightCm !== b.heightCm) {
+    if (a.lengthM !== b.lengthM || a.baseHeightCm !== b.baseHeightCm || a.fenceHeightCm !== b.fenceHeightCm) {
       return {
         legIndices: [i - 1, i, i + 1].filter((idx) => idx >= 0 && idx < next.legs.length),
         structural: false, // a slider edit on an existing leg — keep the user's current angle

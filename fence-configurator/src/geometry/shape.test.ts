@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fieldCountForLeg, layoutShape, type Shape } from './shape';
+import { fieldCountForLeg, layoutShape, legFillHeightCm, type Shape } from './shape';
 import golden from './__fixtures__/golden.json';
 
 /**
@@ -56,7 +56,7 @@ describe('fieldCountForLeg — invariants (the business rule, not just the numbe
   });
 });
 
-const legA = { lengthM: 3, baseHeightCm: 0, heightCm: 180, modelId: 'type-1', sizeId: 'size-1', wallWidthCm: 10 };
+const legA = { lengthM: 3, baseHeightCm: 0, fenceHeightCm: 180.4, modelId: 'type-1', sizeId: 'size-1', wallWidthCm: 10 };
 
 describe('layoutShape — golden baseline scenarios', () => {
   it('A: single short leg, no junction', () => {
@@ -102,7 +102,7 @@ describe('layoutShape — golden baseline scenarios', () => {
     expect(layoutShape(shape)).toEqual(golden.layoutShapeE_disconnectDifferentBase);
   });
 
-  it('F: leg starting on an existing wall (baseHeightCm > 0) — fillHeightCm shrinks accordingly', () => {
+  it('F: leg starting on an existing wall (baseHeightCm > 0) — fill height is independent of the wall', () => {
     const shape: Shape = { legs: [{ ...legA, lengthM: 5, baseHeightCm: 35, wallWidthCm: 12 }], junctions: [] };
     expect(layoutShape(shape)).toEqual(golden.layoutShapeF_existingWallBase);
   });
@@ -111,8 +111,8 @@ describe('layoutShape — golden baseline scenarios', () => {
     const shape: Shape = {
       legs: [
         { ...legA, lengthM: 3 },
-        { lengthM: 4, baseHeightCm: 0, heightCm: 160, modelId: 'type-2', sizeId: 'size-1', wallWidthCm: 10 },
-        { lengthM: 2.5, baseHeightCm: 0, heightCm: 160, modelId: 'type-2', sizeId: 'size-1', wallWidthCm: 10 },
+        { lengthM: 4, baseHeightCm: 0, fenceHeightCm: 160.4, modelId: 'type-2', sizeId: 'size-1', wallWidthCm: 10 },
+        { lengthM: 2.5, baseHeightCm: 0, fenceHeightCm: 160.4, modelId: 'type-2', sizeId: 'size-1', wallWidthCm: 10 },
       ],
       junctions: [{ type: 'straight' }, { type: 'right' }],
     };
@@ -160,15 +160,44 @@ describe('layoutShape — invariants (business rules, not just numbers)', () => 
   it('a double post merges base height as MIN and top height as MAX of its two legs', () => {
     const shape: Shape = {
       legs: [
-        { ...legA, baseHeightCm: 10, heightCm: 170 },
-        { ...legA, baseHeightCm: 10, heightCm: 190 },
+        { ...legA, baseHeightCm: 10, fenceHeightCm: 160.4 },
+        { ...legA, baseHeightCm: 10, fenceHeightCm: 180.4 },
       ],
       junctions: [{ type: 'left' }],
     };
     const { posts } = layoutShape(shape);
     const dp = posts.find((p) => p.isDoublePost)!;
     expect(dp.baseHeightCm).toBe(10);
+    // Post body only — top of the taller leg's body (10 + 180), cap excluded.
     expect(dp.heightCm).toBe(180);
+  });
+
+  it('a double post between two walls spans the lower wall to the higher fence top', () => {
+    const shape: Shape = {
+      legs: [
+        { ...legA, baseHeightCm: 0 },
+        { ...legA, baseHeightCm: 20 },
+      ],
+      junctions: [{ type: 'left' }],
+    };
+    const dp = layoutShape(shape).posts.find((p) => p.isDoublePost)!;
+    expect(dp.baseHeightCm).toBe(0);
+    expect(dp.heightCm).toBe(200);
+  });
+
+  it('raising the wall moves the fence up as one unit — fill and post heights never change', () => {
+    const low: Shape = { legs: [{ ...legA, lengthM: 4, baseHeightCm: 0 }], junctions: [] };
+    const high: Shape = { legs: [{ ...legA, lengthM: 4, baseHeightCm: 45 }], junctions: [] };
+    const a = layoutShape(low);
+    const b = layoutShape(high);
+    expect(b.fields.map((f) => f.fillHeightCm)).toEqual(a.fields.map((f) => f.fillHeightCm));
+    expect(b.posts.map((p) => p.heightCm)).toEqual(a.posts.map((p) => p.heightCm));
+    expect(b.posts.every((p) => p.baseHeightCm === 45)).toBe(true);
+  });
+
+  it('fill height is the fence height minus the cap, exactly (no float drift)', () => {
+    expect(legFillHeightCm({ ...legA, fenceHeightCm: 117.2 })).toBe(116.8);
+    expect(legFillHeightCm({ ...legA, fenceHeightCm: 180.4 })).toBe(180);
   });
 
   it('junctions.length must be legs.length - 1 (implicit contract layoutShape relies on)', () => {

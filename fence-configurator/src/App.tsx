@@ -47,6 +47,9 @@ const BUG_TOAST_MS = 3500;
 // Dropping either below this height folds it into a tab.
 const DOCK_COLLAPSE_BELOW_PX = 110;
 const DOCK_DEFAULT_HEIGHT_PX = 260;
+/** Existing-wall slider ceiling. Independent of the fence height now — the
+ * wall only lifts the fence, it no longer eats into it. Placeholder range. */
+const WALL_MAX_HEIGHT_CM = 150;
 const isMobileLayout = () => window.matchMedia('(max-width: 700px)').matches;
 type DockSurface = 'general' | 'edit' | 'none';
 
@@ -77,9 +80,11 @@ function describeSelectedSteps(stepIndices: number[], total: number): string {
     : `${stepIndices.length} שלבים מתוך ${total} נבחרו`;
 }
 
-/** "בגובה 78 ס״מ" for one step, "בגובה 30–58 ס״מ" for several. */
-function describeSelectedHeight(stepHeights: Record<number, number>): string {
-  const heights = Object.values(stepHeights).map((h) => Math.round(h));
+/** "בגובה 78 ס״מ" for one step, "בגובה 30–58 ס״מ" for several. Measured
+ * from the fence's own base (top of the wall), like the fence height
+ * itself — stepHeights arrive from the ground, so the wall is subtracted. */
+function describeSelectedHeight(stepHeights: Record<number, number>, baseHeightCm: number): string {
+  const heights = Object.values(stepHeights).map((h) => Math.round(h - baseHeightCm));
   if (heights.length === 0) return '';
   const low = Math.min(...heights);
   const high = Math.max(...heights);
@@ -686,7 +691,7 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
               <span>
                 {describeSelectedSteps(selection.stepIndices, selectedFieldTotalSteps)}
                 <small className="sheet-header-sub">
-                  {describeSelectedHeight(selection.stepHeights)} · שדה {selection.fieldIndex + 1}, מקטע {selection.legIndex + 1}
+                  {describeSelectedHeight(selection.stepHeights, shape.legs[selection.legIndex]?.baseHeightCm ?? 0)} · שדה {selection.fieldIndex + 1}, מקטע {selection.legIndex + 1}
                 </small>
               </span>
               <button className="text-btn" onClick={() => setSelection(null)}>
@@ -930,7 +935,7 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
                       <span>מקטע {legIndex + 1}</span>
                       {!isOpen && (
                         <span className="segment-summary">
-                          אורך {leg.lengthM.toFixed(1)} מ׳ · גובה  {Math.round(leg.heightCm)} ס״מ
+                          אורך {leg.lengthM.toFixed(1)} מ׳ · גובה  {formatTrimmed(leg.fenceHeightCm, 1)} ס״מ
                         </span>
                       )}
                       <span className={isOpen ? 'segment-caret segment-caret-open' : 'segment-caret'}>
@@ -968,7 +973,7 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
                           label="גובה גדר"
                           leg={leg}
                           boardCount={stats.boardCountByLeg[legIndex] ?? 0}
-                          onChangeHeight={(v) => updateLeg(legIndex, (l) => ({ ...l, heightCm: v }))}
+                          onChangeHeight={(v) => updateLeg(legIndex, (l) => ({ ...l, fenceHeightCm: v }))}
                           onInteractionStart={beginHistoryTransaction}
                           onInteractionEnd={commitHistoryTransaction}
                         />
@@ -978,7 +983,7 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
                           className="leg-row base-height-row"
                           label="גובה חומה קיים"
                           min={0}
-                          max={Math.max(0, leg.heightCm - 20)}
+                          max={WALL_MAX_HEIGHT_CM}
                           step={1}
                           stepperStep={5}
                           value={leg.baseHeightCm}

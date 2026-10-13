@@ -4,7 +4,7 @@
       {
         "lengthM": 6,
         "baseHeightCm": 0,
-        "heightCm": 113,
+        "fenceHeightCm": 113.4,
         "modelId": "type-1",
         "sizeId": "size-1",
         "wallWidthCm": 12
@@ -27,12 +27,11 @@
     "hex": "#3a3f44"
   },
   "heightForBoardCount": {
-    "baseZero_oneBoard": 9,
-    "baseZero_fiveBoards": 41,
-    "baseNonZero_fiveBoards": 76,
-    "boardCountZero_treatedAsOne": 9,
-    "boardCountNegative_treatedAsOne": 9,
-    "differentDims": 81
+    "oneBoard": 9.4,
+    "fiveBoards": 41.4,
+    "boardCountZero_treatedAsOne": 9.4,
+    "boardCountNegative_treatedAsOne": 9.4,
+    "differentDims": 71.4
   },
   "roundToDecimals": {
     "simple": 1.23,

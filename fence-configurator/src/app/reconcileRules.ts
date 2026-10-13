@@ -1,10 +1,10 @@
 import type { Shape } from '../geometry/shape';
-import { fieldCountForLeg } from '../geometry/shape';
+import { fieldCountForLeg, legFillHeightCm } from '../geometry/shape';
 import { computeBoardStack } from '../geometry/field';
 import type { ColorScheme, ProfileScheme } from '../scene/Scene';
 import { resolveBoardStepCandidates } from '../scene/Scene';
 
-/** A rule whose nearest step (by absolute height from the ground) is farther than this is dropped — its board no longer exists in any meaningful sense. Tunable product call, not a client dimension. */
+/** A rule whose nearest step (by height from its leg's fence base) is farther than this is dropped — its board no longer exists in any meaningful sense. Tunable product call, not a client dimension. */
 export const HEIGHT_MAP_TOLERANCE_CM = 10;
 
 /** Re-mapping can shift indices, which changes the stack, which can shift indices again. Converges in 1-2 rounds in practice; 3 is a hard stop against pathological catalogs. */
@@ -23,8 +23,10 @@ interface AnchoredRule {
 }
 
 /**
- * Absolute height (cm from the ground) of every step in every field, as the
- * stack currently resolves. This is the map that turns a rule's anchor —
+ * Height of every step in every field, measured from its leg's own fence
+ * base (top of the wall) — NOT from the ground — as the stack currently
+ * resolves. Relative on purpose: raising/lowering a wall moves the whole
+ * fence as one unit, so its rules must not notice. This is the map that turns a rule's anchor —
  * its stable identity — back into a stepIndex, which is the only thing
  * resolution itself ever matches on.
  */
@@ -34,18 +36,18 @@ function buildHeightMap(shape: Shape, profileScheme: ProfileScheme): Map<FieldKe
     const startIsMiddle = legIndex > 0 && shape.junctions[legIndex - 1]?.type !== 'disconnect';
     const endIsMiddle = legIndex < shape.legs.length - 1 && shape.junctions[legIndex]?.type !== 'disconnect';
     const fieldCount = fieldCountForLeg(leg.lengthM, startIsMiddle, endIsMiddle);
-    const fillHeightCm = leg.heightCm - leg.baseHeightCm;
+    const fillHeightCm = legFillHeightCm(leg);
     for (let fieldIndex = 0; fieldIndex < fieldCount; fieldIndex++) {
       const stack = computeBoardStack(fillHeightCm, (stepIndex) =>
         resolveBoardStepCandidates(profileScheme, legIndex, fieldIndex, stepIndex, leg.modelId, leg.sizeId),
       );
-      map.set(keyOf(legIndex, fieldIndex), stack.boards.map((b) => leg.baseHeightCm + b.centerCm));
+      map.set(keyOf(legIndex, fieldIndex), stack.boards.map((b) => b.centerCm));
     }
   });
   return map;
 }
 
-/** Nearest step index by absolute height, or null when nothing is within tolerance. */
+/** Nearest step index by fence-relative height, or null when nothing is within tolerance. */
 function nearestStep(heights: number[], anchorHeightCm: number): number | null {
   let best: number | null = null;
   let bestDelta = Infinity;

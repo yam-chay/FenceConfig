@@ -8,4 +8,4 @@
  */
 export type { Leg, Junction, Shape, FieldPlacement, PostPlacement, ShapeLayout } from './shapeTypes';
 export { fieldCountForLeg, splitLegIntoFields } from './fieldCalculator';
-export { layoutShape } from './shapeLayout';
+export { layoutShape, legFillHeightCm, legTopHeightCm } from './shapeLayout';

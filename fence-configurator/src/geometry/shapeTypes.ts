@@ -9,8 +9,16 @@ export interface Leg {
   lengthM: number;
   /** Height (cm) of the existing wall/ground this leg starts from — no floating, the post sits right on it. */
   baseHeightCm: number;
-  /** This leg's own closing/top height (cm). */
-  heightCm: number;
+  /**
+   * The PRODUCT's own height (cm): from the top of the existing wall up to
+   * the top of the post cap (POST_CAP_HEIGHT_CM included). Independent of
+   * baseHeightCm on purpose — raising or lowering the wall moves the whole
+   * fence up/down as one unit and never re-fills it. This is the number the
+   * customer orders. Height from the ground is derived: baseHeightCm +
+   * fenceHeightCm (see legTopHeightCm). Board-fill height is derived too:
+   * see legFillHeightCm.
+   */
+  fenceHeightCm: number;
   /** Which catalog model+size this leg uses — drives board/spacer dims, not just styling. See catalog.ts. */
   modelId: string;
   sizeId: string;
@@ -91,6 +99,7 @@ export interface PostPlacement {
    */
   outgoingHeadingRad?: number;
   baseHeightCm: number;
+  /** Post BODY height (cm) — from its base up to the cap's underside, cap excluded. */
   heightCm: number;
 }
 

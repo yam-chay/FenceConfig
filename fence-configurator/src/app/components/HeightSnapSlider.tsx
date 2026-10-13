@@ -4,7 +4,11 @@ import { resolveBoardDims } from '../../geometry/catalog';
 import { formatTrimmed, roundToDecimals } from '../utils/numberUtils';
 
 /**
- * Fence height, in plain cm — 20 to 200. Used to snap to an exact
+ * Fence height (Leg.fenceHeightCm), in plain cm — 20 to 200. The product's
+ * own height: from the top of the existing wall to the top of the cap.
+ * The wall never changes it — a wall edit lifts the whole fence instead.
+ *
+ * It used to snap to an exact
  * board-stack total (min/max/step derived from ONE board type, so every
  * value on the slider corresponded to a whole number of boards). Reverted
  * to plain cm jumps: with resolveBoardStepCandidates now searching every
@@ -49,11 +53,11 @@ onInteractionEnd?: () => void;
   const dims = resolveBoardDims(leg.modelId, leg.sizeId);
   const stepCm = dims.boardHeightCm + dims.spacerHeightCm;
   function stepBy(direction: 1 | -1) {
-    onChangeHeight(Math.max(FLOOR_CM, Math.min(CEIL_CM, roundToDecimals(leg.heightCm + direction * stepCm, 1))));
+    onChangeHeight(Math.max(FLOOR_CM, Math.min(CEIL_CM, roundToDecimals(leg.fenceHeightCm + direction * stepCm, 1))));
   }
 
   function openEditor() {
-    setEditorValue(leg.heightCm.toFixed(1));
+    setEditorValue(leg.fenceHeightCm.toFixed(1));
     setEditorOpen(true);
   }
 
@@ -84,13 +88,13 @@ onInteractionEnd?: () => void;
           <small className="mobile-stepper-sub">{boardCount} שלבים</small>
         </span>
         <div className="mobile-stepper-controls">
-          <button type="button" className="stepper-btn" onClick={() => stepBy(-1)} disabled={leg.heightCm <= FLOOR_CM} aria-label={`${label} — פחות`}>
+          <button type="button" className="stepper-btn" onClick={() => stepBy(-1)} disabled={leg.fenceHeightCm <= FLOOR_CM} aria-label={`${label} — פחות`}>
             −
           </button>
           <button type="button" className="stepper-value" onClick={openEditor} aria-label={`הזנה ידנית — ${label}`}>
-            {formatTrimmed(leg.heightCm, 1)} ס״מ
+            {formatTrimmed(leg.fenceHeightCm, 1)} ס״מ
           </button>
-          <button type="button" className="stepper-btn" onClick={() => stepBy(1)} disabled={leg.heightCm >= CEIL_CM} aria-label={`${label} — יותר`}>
+          <button type="button" className="stepper-btn" onClick={() => stepBy(1)} disabled={leg.fenceHeightCm >= CEIL_CM} aria-label={`${label} — יותר`}>
             +
           </button>
         </div>
@@ -103,7 +107,7 @@ onInteractionEnd?: () => void;
         title="הזנה ידנית"
         aria-label={`הזנה ידנית — ${label}`}
       >
-        {label}: {formatTrimmed(leg.heightCm, 1)} ס״מ ({boardCount} שלבים)
+        {label}: {formatTrimmed(leg.fenceHeightCm, 1)} ס״מ ({boardCount} שלבים)
       </button>
 
       {editorOpen && (
@@ -147,7 +151,7 @@ onInteractionEnd?: () => void;
         min={FLOOR_CM}
         max={CEIL_CM}
         step={1}
-        value={leg.heightCm}
+        value={leg.fenceHeightCm}
         onPointerDown={onInteractionStart}
         onPointerUp={onInteractionEnd}
         onPointerCancel={onInteractionEnd}

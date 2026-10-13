@@ -697,7 +697,7 @@
         },
         "heading": 0,
         "baseHeightCm": 20,
-        "fillHeightCm": 160
+        "fillHeightCm": 180
       },
       {
         "legIndex": 1,
@@ -710,7 +710,7 @@
         },
         "heading": 0,
         "baseHeightCm": 20,
-        "fillHeightCm": 160
+        "fillHeightCm": 180
       },
       {
         "legIndex": 1,
@@ -723,7 +723,7 @@
         },
         "heading": 0,
         "baseHeightCm": 20,
-        "fillHeightCm": 160
+        "fillHeightCm": 180
       }
     ],
     "posts": [
@@ -793,7 +793,7 @@
         "heading": 0,
         "rosetteEnd": "start",
         "baseHeightCm": 20,
-        "heightCm": 160
+        "heightCm": 180
       },
       {
         "index": 5,
@@ -806,7 +806,7 @@
         },
         "heading": 0,
         "baseHeightCm": 20,
-        "heightCm": 160
+        "heightCm": 180
       },
       {
         "index": 6,
@@ -819,7 +819,7 @@
         },
         "heading": 0,
         "baseHeightCm": 20,
-        "heightCm": 160
+        "heightCm": 180
       },
       {
         "index": 7,
@@ -833,7 +833,7 @@
         "heading": 0,
         "rosetteEnd": "end",
         "baseHeightCm": 20,
-        "heightCm": 160
+        "heightCm": 180
       }
     ]
   },
@@ -850,7 +850,7 @@
         },
         "heading": 0,
         "baseHeightCm": 35,
-        "fillHeightCm": 145
+        "fillHeightCm": 180
       },
       {
         "legIndex": 0,
@@ -863,7 +863,7 @@
         },
         "heading": 0,
         "baseHeightCm": 35,
-        "fillHeightCm": 145
+        "fillHeightCm": 180
       },
       {
         "legIndex": 0,
@@ -876,7 +876,7 @@
         },
         "heading": 0,
         "baseHeightCm": 35,
-        "fillHeightCm": 145
+        "fillHeightCm": 180
       },
       {
         "legIndex": 0,
@@ -889,7 +889,7 @@
         },
         "heading": 0,
         "baseHeightCm": 35,
-        "fillHeightCm": 145
+        "fillHeightCm": 180
       }
     ],
     "posts": [
@@ -905,7 +905,7 @@
         "heading": 0,
         "rosetteEnd": "start",
         "baseHeightCm": 35,
-        "heightCm": 145
+        "heightCm": 180
       },
       {
         "index": 1,
@@ -918,7 +918,7 @@
         },
         "heading": 0,
         "baseHeightCm": 35,
-        "heightCm": 145
+        "heightCm": 180
       },
       {
         "index": 2,
@@ -931,7 +931,7 @@
         },
         "heading": 0,
         "baseHeightCm": 35,
-        "heightCm": 145
+        "heightCm": 180
       },
       {
         "index": 3,
@@ -944,7 +944,7 @@
         },
         "heading": 0,
         "baseHeightCm": 35,
-        "heightCm": 145
+        "heightCm": 180
       },
       {
         "index": 4,
@@ -958,7 +958,7 @@
         "heading": 0,
         "rosetteEnd": "end",
         "baseHeightCm": 35,
-        "heightCm": 145
+        "heightCm": 180
       }
     ]
   },

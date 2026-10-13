@@ -5,6 +5,7 @@ export type Selection =
     kind: 'board';
     legIndex: number;
     fieldIndex: number;
+    /** Clicked board's height from the GROUND (cm) — used only at write time to line a band up across legs; stored anchors are fence-relative. */
     heightCm: number;
     stepIndex: number;
     stepIndices: number[];
@@ -21,6 +22,7 @@ export interface BoardColorRule {
   /** Step index (0 = bottom board), not height — same reasoning as BoardProfileRule: keying on height meant a spacer/profile/base-height change silently detached a color rule from the board it was meant for, since the board's absolute height moved but the rule's stored height didn't. */
   stepIndex: number;
   colorHex: string;
+  /** Height (cm) of the anchored step, measured from its leg's fence base (top of the wall), NOT the ground — a wall edit moves the fence as one unit and must not detach rules. Re-mapping identity only; see reconcileRules.ts. */
   anchorHeightCm: number;
   /** 'exact' = just the one board clicked. 'below'/'above' = that board and everything toward the ground/sky, within this rule's scope. */
   direction: 'exact' | 'below' | 'above';
@@ -50,6 +52,7 @@ export interface ColorScheme {
  */
 export interface BoardProfileRule {
   stepIndex: number;
+  /** Height (cm) of the anchored step, measured from its leg's fence base (top of the wall), NOT the ground — a wall edit moves the fence as one unit and must not detach rules. Re-mapping identity only; see reconcileRules.ts. */
   anchorHeightCm: number;
   modelId: string;
   sizeId: string;
@@ -74,6 +77,7 @@ export interface ProfileScheme {
  */
 export interface SpacerRule {
   stepIndex: number;
+  /** Height (cm) of the anchored step, measured from its leg's fence base (top of the wall), NOT the ground — a wall edit moves the fence as one unit and must not detach rules. Re-mapping identity only; see reconcileRules.ts. */
   anchorHeightCm: number;
   multiplier: number;
   direction: 'exact' | 'below' | 'above';
