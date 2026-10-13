@@ -2,8 +2,7 @@ import { VIEW_DIRECTION } from '../constants';
 
 export const DEFAULT_POLAR = Math.acos(VIEW_DIRECTION.y);
 export const DEFAULT_AZIMUTH = Math.atan2(VIEW_DIRECTION.x, VIEW_DIRECTION.z);
-export const AZIMUTH_RANGE = Infinity; // full horizontal rotation — polar stays locked below
-export const POLAR_RANGE = (45 * Math.PI) / 180;
+export const AZIMUTH_RANGE = Infinity; // full horizontal rotation — vertical limits live in viewGizmo.ts (top view down to the horizon)
 export const ZOOM_IN_FACTOR = 0.55;
 export const ZOOM_OUT_FACTOR = 1.7;
 /** Ceiling for a fly. Long moves get this; short ones must not — a 20 cm nudge that takes as long as an 8 m sweep reads as sluggish, and a long sweep at a short duration reads as being thrown. */
