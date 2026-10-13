@@ -14,6 +14,7 @@ import { usePanelState } from './app/hooks/usePanelState';
 import { useFenceEditor } from './app/hooks/useFenceEditor';
 import {
   readInitialDesign,
+  fetchSharedDesign,
   makeSnapshot,
   saveLocalDesign,
   isViewHash,
@@ -1098,14 +1099,29 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
 /**
  * Entry: reads mode + saved/linked design once, then renders. A broken view
  * link never falls through to the editor — a customer must never land in it.
+ * Short links (/v/<id>) fetch the design first; until then a loading notice.
  */
 export default function App() {
-  const [initial] = useState(readInitialDesign);
-  const brokenViewLink = initial.mode === 'view' && !initial.design;
+  const [initial, setInitial] = useState(readInitialDesign);
+  const shareId = initial.design ? undefined : initial.shareId;
+
+  useEffect(() => {
+    if (!shareId) return;
+    const controller = new AbortController();
+    fetchSharedDesign(shareId, controller.signal).then((design) => {
+      if (controller.signal.aborted) return;
+      setInitial({ mode: 'view', design });
+    });
+    return () => controller.abort();
+  }, [shareId]);
+
+  const brokenViewLink = initial.mode === 'view' && !initial.design && !shareId;
 
   return (
     <DesignErrorBoundary mode={initial.mode}>
-      {brokenViewLink ? (
+      {shareId ? (
+        <CenteredNotice title="טוען הדמיה..." body="רק רגע, מכינים את הגדר שלכם." />
+      ) : brokenViewLink ? (
         <CenteredNotice
           title="הקישור לא תקין"
           body="לא הצלחנו לפתוח את ההדמיה מהקישור הזה. ייתכן שהוא נקטע בהעתקה — אפשר לבקש קישור חדש."
