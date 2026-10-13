@@ -394,9 +394,16 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
   );
 
   // Closing-algorithm results per leg, from the same cached stacks the
-  // scene renders — drives the "בפועל" built-height readout. An overflowing
-  // user-set top step is shown by its red highlight in the scene alone.
+  // scene renders — the real built height, and any user-set top step that
+  // overflows the fence top (red highlight in the scene + the top banner).
   const legReports = useMemo(() => legStackReports(shape, profileScheme), [shape, profileScheme]);
+  const overflowingLegs = legReports.flatMap((r, i) => (r.overflowCm > 0 ? [i] : []));
+
+  function raiseLegToFit(legIndex: number) {
+    const target = legReports[legIndex]?.builtFenceHeightCm;
+    if (target !== undefined) updateLeg(legIndex, (l) => ({ ...l, fenceHeightCm: target }));
+  }
+
 
   // "יש לשדה הזה משהו לשחזר" — profile, spacer, או צבע. במקור זה בדק רק
   // profile/spacer, ולכן שדה עם צבע מותאם בלבד השאיר את הכפתור מושבת.
@@ -672,6 +679,24 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
                 </div>
               </div>
             </>
+          )}
+
+          {!isView && overflowingLegs.length > 0 && (
+            // Persistent, low-key: the red glow on the board says WHERE, this
+            // says what it means and offers the one-click way out.
+            <div className="overflow-banner" dir="rtl">
+              {overflowingLegs.map((legIndex) => (
+                <div key={legIndex} className="overflow-banner-row">
+                  <span>
+                    מקטע {legIndex + 1}: השלב העליון חורג מגובה הגדר ב־
+                    {formatTrimmed(legReports[legIndex].overflowCm, 1)} ס״מ
+                  </span>
+                  <button type="button" className="toast-undo" onClick={() => raiseLegToFit(legIndex)}>
+                    הגבה ל־{formatTrimmed(legReports[legIndex].builtFenceHeightCm, 1)}
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
 
           {!isView && applyFenceToast && (
