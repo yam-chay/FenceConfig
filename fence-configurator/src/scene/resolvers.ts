@@ -1,7 +1,6 @@
-import { resolveBoardDims, FENCE_CATALOG } from '../geometry/catalog';
+import { resolveBoardDims } from '../geometry/catalog';
 import type { ResolvedBoardDims } from '../geometry/field';
 import type { ColorScheme, ProfileScheme } from './types';
-import { SPACER_OPTIONS } from './spacerOptions';
 
 /** Pure — used by both the scene (to color meshes) and the panel (to seed the color picker with a board's current color on click). Step-indexed now, same as resolveBoardProfile — see BoardColorRule's doc comment in types.ts for why. */
 export function resolveBoardColorHex(
@@ -29,11 +28,22 @@ export function resolveSpacerMultiplier(
   fieldIndex: number,
   stepIndex: number,
 ): number {
+  return resolveSpacer(profileScheme, legIndex, fieldIndex, stepIndex).multiplier;
+}
+
+/** resolveSpacerMultiplier plus whether the winning rule was the user's own click on THIS step (an 'exact', non-derived rule). */
+export function resolveSpacer(
+  profileScheme: ProfileScheme,
+  legIndex: number,
+  fieldIndex: number,
+  stepIndex: number,
+): { multiplier: number; explicit: boolean } {
   // Step 0 has no spacer below it by DEFAULT — but that's a default, not
   // a law of the geometry: the user can raise it, and restore-default
   // brings it back to 0. Moved here out of computeBoardStack, where it
   // was hardcoded and no rule could ever override it.
   let multiplier = stepIndex === 0 ? 0 : 1;
+  let explicit = false;
   for (const rule of profileScheme.spacerRules) {
     if (rule.scope === 'field' && (rule.legIndex !== legIndex || rule.fieldIndex !== fieldIndex)) continue;
     // The bottom gap is only ever changed by targeting step 0 directly.
@@ -46,9 +56,12 @@ export function resolveSpacerMultiplier(
     if (rule.direction === 'exact') matches = rule.stepIndex === stepIndex;
     else if (rule.direction === 'below') matches = stepIndex <= rule.stepIndex;
     else matches = stepIndex >= rule.stepIndex;
-    if (matches) multiplier = rule.multiplier;
+    if (matches) {
+      multiplier = rule.multiplier;
+      explicit = rule.direction === 'exact' && !rule.derived;
+    }
   }
-  return multiplier;
+  return { multiplier, explicit };
 }
 
 /**
@@ -65,10 +78,11 @@ export function resolveBoardProfile(
   stepIndex: number,
   fallbackModelId: string,
   fallbackSizeId: string,
-): { modelId: string; sizeId: string; fromRule: boolean } {
+): { modelId: string; sizeId: string; fromRule: boolean; explicit: boolean } {
   let modelId = fallbackModelId;
   let sizeId = fallbackSizeId;
   let fromRule = false;
+  let explicit = false;
   for (const rule of profileScheme.rules) {
     if (rule.scope === 'field' && (rule.legIndex !== legIndex || rule.fieldIndex !== fieldIndex)) continue;
     let matches = false;
@@ -82,26 +96,21 @@ export function resolveBoardProfile(
       // modelId/sizeId, so a propagated rule landing on top of an older
       // clicked one correctly releases the no-fallback lock too.
       fromRule = !rule.derived;
+      // Only a direct pick on THIS step can push past the fence top — a
+      // below/above sweep just describes the column, wherever it ends.
+      explicit = fromRule && rule.direction === 'exact';
     }
   }
-  return { modelId, sizeId, fromRule };
+  return { modelId, sizeId, fromRule, explicit };
 }
 
 /**
- * Builds the ordered candidate list computeBoardStack tries for one step.
- * An explicit profile rule is absolute — a single candidate, no fallback,
- * respecting a deliberate manual choice even on the rare step where it
- * doesn't fit. The leg's own passive default is always tried first; when
- * no rule matches AND the default doesn't fit the remaining room, every
- * OTHER model/size in the whole catalog is offered as a fallback too —
- * confirmed: mixing models/profile types for just that last step is fine,
- * closing flush matters more than staying single-profile. Fallbacks are
- * sorted by their own (board + spacer) step size, largest first, so
- * computeBoardStack's "take the first that fits" naturally picks whichever
- * one gets closest to the ceiling without going over — recomputed fresh
- * every render from current geometry, so it never goes stale: moving
- * baseHeightCm again always re-solves for whatever profile now fits best,
- * rather than leaving behind a leftover gap from a stale earlier choice.
+ * What computeBoardStack places at one step: the leg's own profile, or
+ * whatever a rule set for this step, with its resolved spacer. A single
+ * candidate — choosing a DIFFERENT profile to close the column is the
+ * closing algorithm's job (geometry/closure.ts), and only ever for the
+ * top step. `explicit` marks a step the user picked directly, which is
+ * placed even if it overflows.
  */
 export function resolveBoardStepCandidates(
   profileScheme: ProfileScheme,
@@ -111,56 +120,18 @@ export function resolveBoardStepCandidates(
   fallbackModelId: string,
   fallbackSizeId: string,
 ): ResolvedBoardDims[] {
-  const { modelId, sizeId, fromRule } = resolveBoardProfile(
-    profileScheme,
-    legIndex,
-    fieldIndex,
-    stepIndex,
-    fallbackModelId,
-    fallbackSizeId,
-  );
-  const spacerMultiplier = resolveSpacerMultiplier(profileScheme, legIndex, fieldIndex, stepIndex);
-  const primaryDims = resolveBoardDims(modelId, sizeId);
-  const primary: ResolvedBoardDims = {
-    modelId,
-    sizeId,
-    boardHeightCm: primaryDims.boardHeightCm,
-    spacerHeightCm: primaryDims.spacerHeightCm * spacerMultiplier,
-    baseSpacerHeightCm: primaryDims.spacerHeightCm,
-    spacerMultiplier,
-  };
-
-  if (fromRule) return [primary];
-
-  // Fallback candidates now cross EVERY catalog model/size with EVERY
-  // valid spacer multiplier (SPACER_OPTIONS) — not just the currently
-  // resolved spacer value — so a gap that only closes with, say, a zero
-  // spacer on a specific model/size combination is still found. Same
-  // "closest fit without exceeding, no cutting" philosophy already used
-  // for base-height matching, just extended along the spacer dimension
-  // too. Confirmed with the client: some real installs close a field
-  // with a zero-spacer step.
-  //
-  // Note: this can now try a DIFFERENT spacer than an explicit spacer
-  // rule at this step, if that rule's own value doesn't fit — there's no
-  // "fromRule" guard for spacer the way there is for profile above. If
-  // you want an explicit spacer choice protected from being overridden
-  // here too, that needs a small follow-up (threading a similar fromRule
-  // signal out of resolveSpacerMultiplier).
-  const alternates: ResolvedBoardDims[] = FENCE_CATALOG.flatMap((model) =>
-    model.sizes.flatMap((size) =>
-      SPACER_OPTIONS.filter(
-        (opt) => !(model.id === modelId && size.id === sizeId && opt.value === spacerMultiplier),
-      ).map((opt) => ({
-        modelId: model.id,
-        sizeId: size.id,
-        boardHeightCm: size.boardHeightCm,
-        spacerHeightCm: size.spacerHeightCm * opt.value,
-        baseSpacerHeightCm: size.spacerHeightCm,
-        spacerMultiplier: opt.value,
-      })),
-    ),
-  ).sort((a, b) => b.boardHeightCm + b.spacerHeightCm - (a.boardHeightCm + a.spacerHeightCm));
-
-  return [primary, ...alternates];
+  const profile = resolveBoardProfile(profileScheme, legIndex, fieldIndex, stepIndex, fallbackModelId, fallbackSizeId);
+  const spacer = resolveSpacer(profileScheme, legIndex, fieldIndex, stepIndex);
+  const dims = resolveBoardDims(profile.modelId, profile.sizeId);
+  return [
+    {
+      modelId: profile.modelId,
+      sizeId: profile.sizeId,
+      boardHeightCm: dims.boardHeightCm,
+      spacerHeightCm: dims.spacerHeightCm * spacer.multiplier,
+      baseSpacerHeightCm: dims.spacerHeightCm,
+      spacerMultiplier: spacer.multiplier,
+      explicit: profile.explicit || spacer.explicit,
+    },
+  ];
 }

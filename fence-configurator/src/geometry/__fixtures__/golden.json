@@ -1178,6 +1178,7 @@
         "stepIndex": 0,
         "boardHeightCm": 7,
         "spacerBelowCm": 0,
+        "spacerMultiplier": 0,
         "modelId": "type-1",
         "sizeId": "size-1"
       },
@@ -1186,6 +1187,7 @@
         "stepIndex": 1,
         "boardHeightCm": 7,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-1",
         "sizeId": "size-1"
       },
@@ -1194,6 +1196,7 @@
         "stepIndex": 2,
         "boardHeightCm": 7,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-1",
         "sizeId": "size-1"
       },
@@ -1202,6 +1205,7 @@
         "stepIndex": 3,
         "boardHeightCm": 7,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-1",
         "sizeId": "size-1"
       },
@@ -1210,6 +1214,7 @@
         "stepIndex": 4,
         "boardHeightCm": 7,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-1",
         "sizeId": "size-1"
       },
@@ -1218,6 +1223,7 @@
         "stepIndex": 5,
         "boardHeightCm": 7,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-1",
         "sizeId": "size-1"
       },
@@ -1226,6 +1232,7 @@
         "stepIndex": 6,
         "boardHeightCm": 7,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-1",
         "sizeId": "size-1"
       },
@@ -1234,6 +1241,7 @@
         "stepIndex": 7,
         "boardHeightCm": 7,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-1",
         "sizeId": "size-1"
       },
@@ -1242,6 +1250,7 @@
         "stepIndex": 8,
         "boardHeightCm": 7,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-1",
         "sizeId": "size-1"
       },
@@ -1250,6 +1259,7 @@
         "stepIndex": 9,
         "boardHeightCm": 7,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-1",
         "sizeId": "size-1"
       },
@@ -1258,6 +1268,7 @@
         "stepIndex": 10,
         "boardHeightCm": 7,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-1",
         "sizeId": "size-1"
       },
@@ -1266,6 +1277,7 @@
         "stepIndex": 11,
         "boardHeightCm": 7,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-1",
         "sizeId": "size-1"
       },
@@ -1274,6 +1286,7 @@
         "stepIndex": 12,
         "boardHeightCm": 7,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-1",
         "sizeId": "size-1"
       },
@@ -1282,6 +1295,7 @@
         "stepIndex": 13,
         "boardHeightCm": 7,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-1",
         "sizeId": "size-1"
       },
@@ -1290,6 +1304,7 @@
         "stepIndex": 14,
         "boardHeightCm": 7,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-1",
         "sizeId": "size-1"
       },
@@ -1298,6 +1313,7 @@
         "stepIndex": 15,
         "boardHeightCm": 7,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-1",
         "sizeId": "size-1"
       },
@@ -1306,6 +1322,7 @@
         "stepIndex": 16,
         "boardHeightCm": 7,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-1",
         "sizeId": "size-1"
       },
@@ -1314,6 +1331,7 @@
         "stepIndex": 17,
         "boardHeightCm": 7,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-1",
         "sizeId": "size-1"
       },
@@ -1322,6 +1340,7 @@
         "stepIndex": 18,
         "boardHeightCm": 7,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-1",
         "sizeId": "size-1"
       },
@@ -1330,6 +1349,7 @@
         "stepIndex": 19,
         "boardHeightCm": 7,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-1",
         "sizeId": "size-1"
       },
@@ -1338,6 +1358,7 @@
         "stepIndex": 20,
         "boardHeightCm": 7,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-1",
         "sizeId": "size-1"
       },
@@ -1346,11 +1367,23 @@
         "stepIndex": 21,
         "boardHeightCm": 7,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-1",
         "sizeId": "size-1"
+      },
+      {
+        "centerCm": 179,
+        "stepIndex": 22,
+        "boardHeightCm": 2,
+        "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
+        "modelId": "type-2",
+        "sizeId": "size-2",
+        "closure": true
       }
     ],
-    "filledHeightCm": 177
+    "filledHeightCm": 180,
+    "overflowCm": 0
   },
   "boardStackB_mixedProfiles": {
     "boards": [
@@ -1359,6 +1392,7 @@
         "stepIndex": 0,
         "boardHeightCm": 4,
         "spacerBelowCm": 0,
+        "spacerMultiplier": 0,
         "modelId": "type-2",
         "sizeId": "size-1"
       },
@@ -1367,6 +1401,7 @@
         "stepIndex": 1,
         "boardHeightCm": 4,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-2",
         "sizeId": "size-1"
       },
@@ -1375,6 +1410,7 @@
         "stepIndex": 2,
         "boardHeightCm": 4,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-2",
         "sizeId": "size-1"
       },
@@ -1383,6 +1419,7 @@
         "stepIndex": 3,
         "boardHeightCm": 2,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-2",
         "sizeId": "size-2"
       },
@@ -1391,6 +1428,7 @@
         "stepIndex": 4,
         "boardHeightCm": 2,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-2",
         "sizeId": "size-2"
       },
@@ -1399,6 +1437,7 @@
         "stepIndex": 5,
         "boardHeightCm": 2,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-2",
         "sizeId": "size-2"
       },
@@ -1407,6 +1446,7 @@
         "stepIndex": 6,
         "boardHeightCm": 2,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-2",
         "sizeId": "size-2"
       },
@@ -1415,6 +1455,7 @@
         "stepIndex": 7,
         "boardHeightCm": 2,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-2",
         "sizeId": "size-2"
       },
@@ -1423,6 +1464,7 @@
         "stepIndex": 8,
         "boardHeightCm": 2,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-2",
         "sizeId": "size-2"
       },
@@ -1431,6 +1473,7 @@
         "stepIndex": 9,
         "boardHeightCm": 2,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-2",
         "sizeId": "size-2"
       },
@@ -1439,6 +1482,7 @@
         "stepIndex": 10,
         "boardHeightCm": 2,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-2",
         "sizeId": "size-2"
       },
@@ -1447,6 +1491,7 @@
         "stepIndex": 11,
         "boardHeightCm": 2,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-2",
         "sizeId": "size-2"
       },
@@ -1455,6 +1500,7 @@
         "stepIndex": 12,
         "boardHeightCm": 2,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-2",
         "sizeId": "size-2"
       },
@@ -1463,6 +1509,7 @@
         "stepIndex": 13,
         "boardHeightCm": 2,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-2",
         "sizeId": "size-2"
       },
@@ -1471,6 +1518,7 @@
         "stepIndex": 14,
         "boardHeightCm": 2,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-2",
         "sizeId": "size-2"
       },
@@ -1479,6 +1527,7 @@
         "stepIndex": 15,
         "boardHeightCm": 2,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-2",
         "sizeId": "size-2"
       },
@@ -1487,11 +1536,23 @@
         "stepIndex": 16,
         "boardHeightCm": 2,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-2",
         "sizeId": "size-2"
+      },
+      {
+        "centerCm": 59,
+        "stepIndex": 17,
+        "boardHeightCm": 2,
+        "spacerBelowCm": 0,
+        "spacerMultiplier": 0,
+        "modelId": "type-2",
+        "sizeId": "size-2",
+        "closure": true
       }
     ],
-    "filledHeightCm": 58
+    "filledHeightCm": 60,
+    "overflowCm": 0
   },
   "boardStackC_fallbackNarrowsToFitGap": {
     "boards": [
@@ -1500,6 +1561,7 @@
         "stepIndex": 0,
         "boardHeightCm": 4,
         "spacerBelowCm": 0,
+        "spacerMultiplier": 0,
         "modelId": "type-2",
         "sizeId": "size-1"
       },
@@ -1508,6 +1570,7 @@
         "stepIndex": 1,
         "boardHeightCm": 4,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-2",
         "sizeId": "size-1"
       },
@@ -1516,6 +1579,7 @@
         "stepIndex": 2,
         "boardHeightCm": 4,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-2",
         "sizeId": "size-1"
       },
@@ -1524,11 +1588,23 @@
         "stepIndex": 3,
         "boardHeightCm": 4,
         "spacerBelowCm": 1,
+        "spacerMultiplier": 1,
         "modelId": "type-2",
         "sizeId": "size-1"
+      },
+      {
+        "centerCm": 22,
+        "stepIndex": 4,
+        "boardHeightCm": 2,
+        "spacerBelowCm": 0,
+        "spacerMultiplier": 0,
+        "modelId": "type-2",
+        "sizeId": "size-2",
+        "closure": true
       }
     ],
-    "filledHeightCm": 21
+    "filledHeightCm": 23,
+    "overflowCm": 0
   },
   "faceForDirection": {
     "same": "posX",

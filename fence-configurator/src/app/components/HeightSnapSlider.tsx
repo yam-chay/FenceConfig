@@ -8,17 +8,11 @@ import { formatTrimmed, roundToDecimals } from '../utils/numberUtils';
  * own height: from the top of the existing wall to the top of the cap.
  * The wall never changes it — a wall edit lifts the whole fence instead.
  *
- * It used to snap to an exact
- * board-stack total (min/max/step derived from ONE board type, so every
- * value on the slider corresponded to a whole number of boards). Reverted
- * to plain cm jumps: with resolveBoardStepCandidates now searching every
- * model/size AND every spacer option (SPACER_OPTIONS — see
- * scene/resolvers.ts) for whatever gets closest to the target without
- * cutting a board, the worst-case leftover gap before the cap is small
- * enough (confirmed against the catalog: every step size 2–9 cm is
- * reachable, so the greedy fill never leaves more than ~1cm uncovered) —
- * and the cap already hides a gap that small. No need to constrain the
- * slider itself to discrete board-count stops anymore.
+ * Any value is accepted — the closing algorithm (geometry/closure.ts)
+ * picks one final step from the whole catalog to get as close as possible
+ * without exceeding it. Whole-cm parts can't hit every typed value, so the
+ * label also shows the height actually built when it differs (always
+ * under 1 cm with the current catalog).
  *
  * `boardCount` is the REAL count for this leg, computed in Scene.tsx from
  * the actual per-step resolved stack (profile rules, spacer fallback
@@ -31,6 +25,7 @@ export function HeightSnapSlider({
   label,
   leg,
   boardCount,
+  builtHeightCm,
   onChangeHeight,
   onInteractionStart,
   onInteractionEnd,
@@ -38,6 +33,8 @@ export function HeightSnapSlider({
   label: string;
   leg: Leg;
   boardCount: number;
+  /** What the closing algorithm actually reached (cap included). Shown next to the requested height when they differ — whole-cm parts can't always hit a typed value exactly. */
+  builtHeightCm?: number;
   onChangeHeight: (heightCm: number) => void;
 onInteractionStart?: () => void;
 onInteractionEnd?: () => void;
@@ -108,6 +105,9 @@ onInteractionEnd?: () => void;
         aria-label={`הזנה ידנית — ${label}`}
       >
         {label}: {formatTrimmed(leg.fenceHeightCm, 1)} ס״מ ({boardCount} שלבים)
+        {builtHeightCm !== undefined && Math.abs(builtHeightCm - leg.fenceHeightCm) >= 0.05 && (
+          <span className="built-height"> · בפועל {formatTrimmed(builtHeightCm, 1)}</span>
+        )}
       </button>
 
       {editorOpen && (

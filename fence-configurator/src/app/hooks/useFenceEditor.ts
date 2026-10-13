@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { Shape, Leg, Junction } from '../../geometry/shape';
-import { fieldCountForLeg, legFillHeightCm } from '../../geometry/shape';
-import { computeBoardStack } from '../../geometry/field';
+import { fieldCountForLeg } from '../../geometry/shape';
 import { DEFAULT_MODEL_ID, DEFAULT_SIZE_ID } from '../../geometry/catalog';
 import { reconcileRules, HEIGHT_MAP_TOLERANCE_CM } from '../reconcileRules';
 import type { ColorScheme, ProfileScheme, Selection, BoardColorRule, BoardProfileRule, SpacerRule } from '../../scene/Scene';
@@ -10,8 +9,8 @@ import {
   resolveBoardColorHex,
   resolveBoardProfile,
   resolveSpacerMultiplier,
-  resolveBoardStepCandidates,
 } from '../../scene/Scene';
+import { fieldBoardStack } from '../../scene/fieldStack';
 import { FENCE_COLORS } from '../defaults';
 
 /**
@@ -153,9 +152,7 @@ export function useFenceEditor(
   function stepIndexAtHeight(legIndex: number, fieldIndex: number, fenceRelativeCm: number): number | null {
     const leg = shape.legs[legIndex];
     if (!leg) return null;
-    const stack = computeBoardStack(legFillHeightCm(leg), (i) =>
-      resolveBoardStepCandidates(profileScheme, legIndex, fieldIndex, i, leg.modelId, leg.sizeId),
-    );
+    const stack = fieldBoardStack(profileScheme, leg, legIndex, fieldIndex);
     let best: number | null = null;
     let bestDelta = Infinity;
     stack.boards.forEach((b, i) => {
@@ -369,6 +366,34 @@ export function useFenceEditor(
     }
   }
 
+  // The closing step's profile and spacer were picked TOGETHER by the
+  // closing algorithm. When the user overrides one of them directly, the
+  // other is pinned as it currently is — otherwise changing just the gap
+  // under a 2cm closing board would silently turn it back into the leg's
+  // own (much taller) profile.
+  function closureBoardAt(t: RuleTarget) {
+    const leg = shape.legs[t.legIndex];
+    if (!leg) return null;
+    const board = fieldBoardStack(profileScheme, leg, t.legIndex, t.fieldIndex).boards[t.stepIndex];
+    return board?.closure ? board : null;
+  }
+
+  function spacerPinsFor(targets: RuleTarget[]): SpacerRule[] {
+    return targets.flatMap((t) => {
+      const board = closureBoardAt(t);
+      return board ? [{ multiplier: board.spacerMultiplier, direction: 'exact' as const, scope: 'field' as const, ...t }] : [];
+    });
+  }
+
+  function profilePinsFor(targets: RuleTarget[]): BoardProfileRule[] {
+    return targets.flatMap((t) => {
+      const board = closureBoardAt(t);
+      return board
+        ? [{ modelId: board.modelId, sizeId: board.sizeId, direction: 'exact' as const, scope: 'field' as const, ...t }]
+        : [];
+    });
+  }
+
   // Same shape as addColorRule, one rule type over — but keyed on STEP
   // Resolution still matches on stepIndex only — height circularly
   // depends on the types being resolved. The anchor is the rule's stable
@@ -376,32 +401,29 @@ export function useFenceEditor(
   function addProfileRule(direction: 'exact' | 'below' | 'above', stepIndex: number, modelId: string, sizeId: string) {
     if (selection?.kind !== 'board') return;
     const targets = ruleTargets(selection.legIndex, selection.fieldIndex, stepIndex);
+    const pins = direction === 'exact' ? spacerPinsFor(targets) : [];
     setProfileScheme((prev) => ({
       ...prev,
       rules: [
         ...prev.rules,
         ...targets.map((t) => ({ modelId, sizeId, direction, scope: 'field' as const, ...t })),
       ],
+      spacerRules: pins.length ? [...prev.spacerRules, ...pins] : prev.spacerRules,
     }));
   }
 
   function addProfileRuleForSteps(stepIndices: number[], modelId: string, sizeId: string) {
     if (selection?.kind !== 'board') return;
     const sel = selection;
+    const targets = stepIndices.flatMap((stepIndex) => ruleTargets(sel.legIndex, sel.fieldIndex, stepIndex));
+    const pins = spacerPinsFor(targets);
     setProfileScheme((prev) => ({
       ...prev,
       rules: [
         ...prev.rules,
-        ...stepIndices.flatMap((stepIndex) =>
-          ruleTargets(sel.legIndex, sel.fieldIndex, stepIndex).map((t) => ({
-            modelId,
-            sizeId,
-            direction: 'exact' as const,
-            scope: 'field' as const,
-            ...t,
-          })),
-        ),
+        ...targets.map((t) => ({ modelId, sizeId, direction: 'exact' as const, scope: 'field' as const, ...t })),
       ],
+      spacerRules: pins.length ? [...prev.spacerRules, ...pins] : prev.spacerRules,
     }));
   }
 
@@ -441,8 +463,10 @@ export function useFenceEditor(
   function addSpacerRule(direction: 'exact' | 'below' | 'above', stepIndex: number, multiplier: number) {
     if (selection?.kind !== 'board') return;
     const targets = ruleTargets(selection.legIndex, selection.fieldIndex, stepIndex);
+    const pins = direction === 'exact' ? profilePinsFor(targets) : [];
     setProfileScheme((prev) => ({
       ...prev,
+      rules: pins.length ? [...prev.rules, ...pins] : prev.rules,
       spacerRules: [
         ...prev.spacerRules,
         ...targets.map((t) => ({ multiplier, direction, scope: 'field' as const, ...t })),
@@ -453,18 +477,14 @@ export function useFenceEditor(
   function addSpacerRuleForSteps(stepIndices: number[], multiplier: number) {
     if (selection?.kind !== 'board') return;
     const sel = selection;
+    const targets = stepIndices.flatMap((stepIndex) => ruleTargets(sel.legIndex, sel.fieldIndex, stepIndex));
+    const pins = profilePinsFor(targets);
     setProfileScheme((prev) => ({
       ...prev,
+      rules: pins.length ? [...prev.rules, ...pins] : prev.rules,
       spacerRules: [
         ...prev.spacerRules,
-        ...stepIndices.flatMap((stepIndex) =>
-          ruleTargets(sel.legIndex, sel.fieldIndex, stepIndex).map((t) => ({
-            multiplier,
-            direction: 'exact' as const,
-            scope: 'field' as const,
-            ...t,
-          })),
-        ),
+        ...targets.map((t) => ({ multiplier, direction: 'exact' as const, scope: 'field' as const, ...t })),
       ],
     }));
   }
@@ -541,11 +561,7 @@ export function useFenceEditor(
     if (selection?.kind !== 'board') return;
     const { legIndex: sourceLegIndex, fieldIndex: sourceFieldIndex } = selection;
     const sourceLeg = shape.legs[sourceLegIndex];
-    const sourceFillHeightCm = legFillHeightCm(sourceLeg);
-
-    const sourceStack = computeBoardStack(sourceFillHeightCm, (stepIndex) =>
-      resolveBoardStepCandidates(profileScheme, sourceLegIndex, sourceFieldIndex, stepIndex, sourceLeg.modelId, sourceLeg.sizeId),
-    );
+    const sourceStack = fieldBoardStack(profileScheme, sourceLeg, sourceLegIndex, sourceFieldIndex);
 
     if (sourceStack.boards.length === 0) return;
 

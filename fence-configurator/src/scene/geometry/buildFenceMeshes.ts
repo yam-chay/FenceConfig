@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { layoutShape, fieldCountForLeg, legTopHeightCm, type Shape } from '../../geometry/shape';
-import { computeBoardStack } from '../../geometry/field';
 import { buildPostSpec, activeGrooveFaces } from '../../geometry/post';
 import {
   POST_THICKNESS_CM,
@@ -12,7 +11,8 @@ import {
   CAP_COLOR_HEX,
 } from '../../geometry/constants';
 import type { ColorScheme, ProfileScheme, Selection, FrameTarget, LegBounds } from '../types';
-import { resolveBoardColorHex, resolveBoardStepCandidates } from '../resolvers';
+import { resolveBoardColorHex } from '../resolvers';
+import { fieldBoardStack } from '../fieldStack';
 import { ALUMINUM_ROUGHNESS, ALUMINUM_METALNESS } from '../materials/materials';
 import { buildPostGeometry } from './postGeometry';
 
@@ -85,6 +85,14 @@ export function buildFenceMeshes(
     // what the person is trying to check by looking at this element.
     clone.emissive = new THREE.Color(0xd9d9d9);
     clone.emissiveIntensity = 0.07;
+    return clone;
+  }
+  // A user-set top step that pokes past the fence top: a red glow over its
+  // own color — a warning highlight, not a repaint.
+  function withOverflowWarning(mat: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
+    const clone = mat.clone();
+    clone.emissive = new THREE.Color(0xff3b30);
+    clone.emissiveIntensity = 0.35;
     return clone;
   }
   const postDisplayMat = selection?.kind === 'post' ? withHighlight(postMat) : postMat;
@@ -313,13 +321,8 @@ export function buildFenceMeshes(
     // (The old `* 0.96` heuristic wasn't tied to actual post thickness, so
     // the gap it left grew right along with field length.)
     const boardLengthM = Math.max(0.05, field.lengthM - postThicknessM);
-    const boardStack = computeBoardStack(field.fillHeightCm, (stepIndex) =>
-      resolveBoardStepCandidates(profileScheme, field.legIndex, field.index, stepIndex, leg.modelId, leg.sizeId),
-    );
+    const boardStack = fieldBoardStack(profileScheme, leg, field.legIndex, field.index);
     boardCountByField[`${field.legIndex}:${field.index}`] = boardStack.boards.length;
-        console.log(
-      `field ${field.legIndex}:${field.index} fill=${field.fillHeightCm.toFixed(1)} filled=${boardStack.filledHeightCm.toFixed(1)} leftover=${(field.fillHeightCm - boardStack.filledHeightCm).toFixed(2)} steps=${boardStack.boards.length} last=${boardStack.boards.at(-1)?.modelId}/${boardStack.boards.at(-1)?.sizeId}`,
-    );
     const baseM = field.baseHeightCm / 100;
 
     const startIsMiddle = field.legIndex > 0 && shape.junctions[field.legIndex - 1]?.type !== 'disconnect';
@@ -445,7 +448,13 @@ export function buildFenceMeshes(
         selection.legIndex === field.legIndex &&
         selection.fieldIndex === field.index &&
         selection.stepIndices.includes(board.stepIndex);
-      const mat = isHighlighted ? withHighlight(boardMaterial(hex)) : boardMaterial(hex);
+      // The overflow warning wins over the selection glow — it's the one
+      // thing about this board the user must not miss.
+      const mat = board.overflow
+        ? withOverflowWarning(boardMaterial(hex))
+        : isHighlighted
+          ? withHighlight(boardMaterial(hex))
+          : boardMaterial(hex);
       const boardHeightM = board.boardHeightCm / 100;
       const geo = new THREE.BoxGeometry(boardLengthM, boardHeightM, boardThicknessM);
       const mesh = new THREE.Mesh(geo, mat);

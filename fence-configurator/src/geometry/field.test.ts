@@ -62,13 +62,59 @@ describe('computeBoardStack — invariants (business rules, not just numbers)', 
     expect(stack.boards[3].spacerBelowCm).toBe(2);
   });
 
-  it('prefers widening spacers over an extra board when spacers alone close it', () => {
-    // rosette + 7 + 21×8, then exactly 2 cm left; 21 widenable spacers.
+  it('closes with ONE final step and never re-spaces the boards below it', () => {
+    // rosette + 7 + 21×8, then exactly 2 cm left.
     const target = ROSETTE_OFFSET_CM + 7 + 21 * 8 + 2;
     const stack = computeBoardStack(target, uniform(typeSingle));
     expect(stack.filledHeightCm).toBe(target);
-    expect(stack.boards).toHaveLength(22);
-    expect(stack.boards.every((b) => b.modelId === 'type-1' && b.sizeId === 'size-1')).toBe(true);
+    const below = stack.boards.slice(0, -1);
+    expect(below.every((b, i) => b.spacerBelowCm === (i === 0 ? 0 : 1))).toBe(true);
+    expect(below.some((b) => b.closure)).toBe(false);
+    expect(stack.boards.at(-1)!.closure).toBe(true);
+  });
+
+  it('too small a remainder for any step on top → the last step is replaced (its own spacer may change)', () => {
+    // 1 cm left over a type-1 column: nothing that small exists, but a
+    // 7cm board over a doubled spacer closes it in place of the last step.
+    const target = ROSETTE_OFFSET_CM + 7 + 10 * 8 + 1;
+    const stack = computeBoardStack(target, uniform(typeSingle));
+    expect(stack.filledHeightCm).toBe(target);
+    expect(stack.boards).toHaveLength(11);
+    const top = stack.boards.at(-1)!;
+    expect(top).toMatchObject({ modelId: 'type-1', boardHeightCm: 7, spacerBelowCm: 2, closure: true });
+  });
+
+  it('whole-cm fills always close exactly with the current catalog', () => {
+    for (let fill = 20; fill <= 200; fill++) {
+      expect(computeBoardStack(fill, uniform(typeSingle)).filledHeightCm).toBe(fill);
+    }
+  });
+
+  it('a fill that no part combination reaches leaves the smallest gap, never more than 1 cm', () => {
+    for (let tenths = 200; tenths <= 2000; tenths++) {
+      const stack = computeBoardStack(tenths / 10, uniform(typeSingle));
+      const gap = tenths / 10 - stack.filledHeightCm;
+      expect(gap).toBeGreaterThanOrEqual(0);
+      expect(gap).toBeLessThan(1);
+    }
+  });
+
+  it('a user-set step that does not fit is placed anyway and flagged as overflowing', () => {
+    const tall: ResolvedBoardDims = { ...typeSingle, explicit: true };
+    const fill = ROSETTE_OFFSET_CM + 7 + 10 * 8 + 3; // 3 cm left — an 8cm step overflows by 5
+    const resolve = (i: number) => [i === 0 ? startAtZero(typeSingle) : i === 11 ? tall : typeSingle];
+    const stack = computeBoardStack(fill, resolve);
+    expect(stack.overflowCm).toBe(5);
+    expect(stack.boards.at(-1)).toMatchObject({ stepIndex: 11, overflow: true });
+    expect(stack.boards.some((b) => b.closure)).toBe(false);
+  });
+
+  it('a user-set last step is never replaced by the closure', () => {
+    const fill = ROSETTE_OFFSET_CM + 7 + 10 * 8 + 1;
+    const resolve = (i: number) => [i === 0 ? startAtZero(typeSingle) : i === 10 ? { ...typeSingle, explicit: true } : typeSingle];
+    const stack = computeBoardStack(fill, resolve);
+    expect(stack.boards[10]).toMatchObject({ spacerBelowCm: 1 });
+    expect(stack.boards[10].closure).toBeUndefined();
   });
 
   it('no board is ever cut/split — every placed board keeps its full catalog height', () => {

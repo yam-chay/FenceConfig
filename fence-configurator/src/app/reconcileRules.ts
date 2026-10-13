@@ -1,8 +1,7 @@
 import type { Shape } from '../geometry/shape';
-import { fieldCountForLeg, legFillHeightCm } from '../geometry/shape';
-import { computeBoardStack } from '../geometry/field';
+import { fieldCountForLeg } from '../geometry/shape';
 import type { ColorScheme, ProfileScheme } from '../scene/Scene';
-import { resolveBoardStepCandidates } from '../scene/Scene';
+import { fieldBoardStack } from '../scene/fieldStack';
 
 /** A rule whose nearest step (by height from its leg's fence base) is farther than this is dropped — its board no longer exists in any meaningful sense. Tunable product call, not a client dimension. */
 export const HEIGHT_MAP_TOLERANCE_CM = 10;
@@ -36,11 +35,8 @@ function buildHeightMap(shape: Shape, profileScheme: ProfileScheme): Map<FieldKe
     const startIsMiddle = legIndex > 0 && shape.junctions[legIndex - 1]?.type !== 'disconnect';
     const endIsMiddle = legIndex < shape.legs.length - 1 && shape.junctions[legIndex]?.type !== 'disconnect';
     const fieldCount = fieldCountForLeg(leg.lengthM, startIsMiddle, endIsMiddle);
-    const fillHeightCm = legFillHeightCm(leg);
     for (let fieldIndex = 0; fieldIndex < fieldCount; fieldIndex++) {
-      const stack = computeBoardStack(fillHeightCm, (stepIndex) =>
-        resolveBoardStepCandidates(profileScheme, legIndex, fieldIndex, stepIndex, leg.modelId, leg.sizeId),
-      );
+      const stack = fieldBoardStack(profileScheme, leg, legIndex, fieldIndex);
       map.set(keyOf(legIndex, fieldIndex), stack.boards.map((b) => b.centerCm));
     }
   });

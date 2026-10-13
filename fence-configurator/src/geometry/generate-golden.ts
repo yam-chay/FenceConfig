@@ -79,19 +79,30 @@ const shapeG: Shape = {
 };
 out.layoutShapeG_threeLegsMixed = layoutShape(shapeG);
 
+// The board-stack scenarios MUST call computeBoardStack exactly the way
+// field.test.ts does (step 0 at the app's default ×0 bottom spacer) —
+// when they drifted apart, the goldens could never match.
+const startAtZero = (d: ResolvedBoardDims): ResolvedBoardDims => ({
+  ...d,
+  spacerHeightCm: 0,
+  baseSpacerHeightCm: d.spacerHeightCm,
+  spacerMultiplier: 0,
+});
+const uniform = (d: ResolvedBoardDims) => (stepIndex: number) => [stepIndex === 0 ? startAtZero(d) : d];
+
 // ---------- computeBoardStack: scenario A — single board type ----------
 const dimsSingle: ResolvedBoardDims = { modelId: 'type-1', sizeId: 'size-1', boardHeightCm: 7, spacerHeightCm: 1 };
-out.boardStackA_singleType = computeBoardStack(180, () => [dimsSingle]);
+out.boardStackA_singleType = computeBoardStack(180, uniform(dimsSingle));
 
 // ---------- computeBoardStack: scenario B — mixed profile types (first 3 steps type A, rest type B) ----------
 const typeA: ResolvedBoardDims = { modelId: 'type-2', sizeId: 'size-1', boardHeightCm: 4, spacerHeightCm: 1 };
 const typeB: ResolvedBoardDims = { modelId: 'type-2', sizeId: 'size-2', boardHeightCm: 2, spacerHeightCm: 1 };
-out.boardStackB_mixedProfiles = computeBoardStack(60, (stepIndex) => (stepIndex < 3 ? [typeA] : [typeB]));
+out.boardStackB_mixedProfiles = computeBoardStack(60, (stepIndex) => [
+  stepIndex === 0 ? startAtZero(typeA) : stepIndex < 3 ? typeA : typeB,
+]);
 
-// ---------- computeBoardStack: scenario C — candidate fallback closes leftover gap ----------
-const wide: ResolvedBoardDims = { modelId: 'type-2', sizeId: 'size-1', boardHeightCm: 4, spacerHeightCm: 1 };
-const narrow: ResolvedBoardDims = { modelId: 'type-2', sizeId: 'size-2', boardHeightCm: 2, spacerHeightCm: 1 };
-out.boardStackC_fallbackNarrowsToFitGap = computeBoardStack(23, () => [wide, narrow]);
+// ---------- computeBoardStack: scenario C — primary alone leaves a gap, closure closes it ----------
+out.boardStackC_fallbackNarrowsToFitGap = computeBoardStack(23, uniform(typeA));
 
 // ---------- post.ts: faceForDirection across the four buckets + wraparound ----------
 out.faceForDirection = {
