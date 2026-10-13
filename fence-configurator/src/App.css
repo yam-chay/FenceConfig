@@ -616,12 +616,65 @@
   margin-bottom: 0;
 }
 
-.history-controls {
+/* Top-right of the canvas: history buttons, then (desktop only) the
+   navigation gizmo and the projection toggle stacked under them. */
+.corner-tools {
   position: absolute;
   top: 12px;
   right: 12px;
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.history-controls {
+  display: flex;
   gap: 6px;
+}
+
+/* Transparent: Scene's renderer draws the gizmo underneath this box. */
+.view-gizmo {
+  display: none;
+  width: 116px;
+  height: 116px;
+  border-radius: 50%;
+  touch-action: none;
+  cursor: grab;
+}
+
+.projection-btn {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px 0 10px;
+  border: none;
+  border-radius: 15px;
+  background: rgba(58, 58, 58, 0.85);
+  color: #fff;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.projection-btn-ortho {
+  background: rgba(187, 41, 49, 0.92);
+}
+
+.projection-btn:focus-visible {
+  outline: 2px solid rgba(187, 41, 49, 0.9);
+  outline-offset: 2px;
+}
+
+@media (min-width: 701px) and (hover: hover) and (pointer: fine) {
+  .view-gizmo {
+    display: block;
+  }
+
+  .projection-btn {
+    display: flex;
+  }
 }
 
 .history-btn {
@@ -1042,6 +1095,11 @@
 .share-link-btn:hover,
 .view-exit-focus:hover {
   background: var(--brand-primary);
+}
+
+.share-link-btn:disabled {
+  opacity: 0.75;
+  cursor: progress;
 }
 
 .share-link-status {

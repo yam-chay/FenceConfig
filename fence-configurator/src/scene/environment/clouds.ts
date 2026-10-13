@@ -22,6 +22,21 @@ export const CLOUD_AZIMUTH_SPAN_DEG = 360;
 // timeOfDayHours — only cloud COLOR is tied to the hour, not position.
 export const CLOUD_DRIFT_DEG_PER_SEC = 0.3;
 export const CLOUD_SHADOW_Y_OFFSET_M = 1.2;
+/**
+ * Fixed draw order for the sky's transparent sprites. Left to three.js,
+ * transparent objects are sorted by camera distance every frame, and the
+ * clouds drift at different speeds: whenever one cloud's darker shadow
+ * sprite and another's bright sprite overlap and swap distance — or a
+ * cloud's own pair does, with the camera near level — the overlap flips
+ * between darker and brighter in a single frame (a random brightness
+ * flicker). Drawing every shadow before every bright sprite removes the
+ * flip; within each group the sprites share a color and opacity, so their
+ * order doesn't show. The sun/moon halos stay first: they sit far behind
+ * all the clouds.
+ */
+export const SKY_HALO_RENDER_ORDER = -3;
+export const CLOUD_SHADOW_RENDER_ORDER = -2;
+export const CLOUD_BRIGHT_RENDER_ORDER = -1;
 export const CLOUD_SCALE_MIN = 8;
 export const CLOUD_SCALE_MAX = 20;
 

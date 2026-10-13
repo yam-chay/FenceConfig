@@ -14,6 +14,9 @@ import {
   CLOUD_AZIMUTH_SPAN_DEG,
   CLOUD_DRIFT_DEG_PER_SEC,
   CLOUD_SHADOW_Y_OFFSET_M,
+  CLOUD_SHADOW_RENDER_ORDER,
+  CLOUD_BRIGHT_RENDER_ORDER,
+  SKY_HALO_RENDER_ORDER,
   CLOUD_SCALE_MIN,
   CLOUD_SCALE_MAX,
   cloudPositionForAzimuth,
@@ -21,10 +24,8 @@ import {
 } from './environment/clouds';
 import { buildFenceMeshes } from './geometry/buildFenceMeshes';
 import {
-  DEFAULT_POLAR,
   DEFAULT_AZIMUTH,
   AZIMUTH_RANGE,
-  POLAR_RANGE,
   ZOOM_IN_FACTOR,
   ZOOM_OUT_FACTOR,
   flyDurationFor,
@@ -38,6 +39,19 @@ import {
   easeInOutQuad,
 } from './camera/cameraUtils';
 import { diffFocusLegs } from './camera/cameraFocus';
+import {
+  MIN_POLAR_ANGLE,
+  MAX_POLAR_ANGLE,
+  alignedFace,
+  faceOffsetDirection,
+  interpolateOffset,
+  nearestFace,
+  orbitOffset,
+  type CameraProjection,
+  type ViewFace,
+} from './camera/viewGizmo';
+import { createViewGizmoScene } from './camera/viewGizmoScene';
+import { createDrawingGrid } from './environment/drawingGrid';
 import { GRASS_COLOR_HEX, GRID_OPACITY } from './materials/materials';
 import { SHADOW_MAP_SIZE, SHADOW_FRUSTUM_MARGIN_M } from './environment/lighting';
 import { createSceneFog, applyFogRange, disableFog } from './environment/fog';
@@ -90,12 +104,23 @@ interface SceneProps {
   frameAllRequest?: number;
   /** Filled by Scene with a reader for the live camera — used by bug reports. */
   cameraSnapshotRef?: { current: (() => CameraSnapshot) | null };
+  /**
+   * Controlled. Orthographic renders the same view as the perspective
+   * camera, flattened — see syncOrthoCamera. Scene asks to change it via
+   * onProjectionChange: a gizmo face click asks for orthographic, an
+   * orbit (gizmo drag or left-drag on the scene) asks for perspective.
+   */
+  projection?: CameraProjection;
+  onProjectionChange?: (projection: CameraProjection) => void;
+  /** The navigation gizmo's box. Scene draws the gizmo into it and handles its pointer input. Hidden (zero size) = not drawn. */
+  gizmoElRef?: { current: HTMLDivElement | null };
 }
 
 export interface CameraSnapshot {
   position: [number, number, number];
   target: [number, number, number];
   distance: number;
+  projection: CameraProjection;
 }
 
 interface CloudSprite {
@@ -119,7 +144,15 @@ const PORTRAIT_HFIT_WEIGHT = 0.7;
 const PAN_SPEED = 0.7;
 /** How far past the fence's own footprint a pan may carry the view target, meters. */
 const PAN_MARGIN_M = 2;
-
+/**
+ * The world around the fence — sky bodies, clouds, grass, grid — lives on
+ * this layer so drawing mode can render the fence without it. Layers rather
+ * than .visible, because the day/night effect owns the sun/moon visibility.
+ */
+const ENV_LAYER = 1;
+/** Fade between the 3D world and drawing mode's flat backdrop. */
+const DRAWING_FADE_MS = 280;
+const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 export default function Scene({
   shape,
   colorScheme,
@@ -132,6 +165,9 @@ export default function Scene({
   timeOfDayHours,
   frameAllRequest = 0,
   cameraSnapshotRef,
+  projection = 'perspective',
+  onProjectionChange,
+  gizmoElRef,
 }: SceneProps) {
   const fogRef = useRef<THREE.Fog | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -164,6 +200,19 @@ export default function Scene({
   onSelectRef.current = onSelect;
   const selectionRef = useRef(selection);
   selectionRef.current = selection;
+  // Read every frame by the render loop; also flipped immediately by
+  // Scene's own requests so the very next frame already uses it.
+  const isOrthoRef = useRef(projection === 'orthographic');
+  isOrthoRef.current = projection === 'orthographic';
+  const onProjectionChangeRef = useRef(onProjectionChange);
+  onProjectionChangeRef.current = onProjectionChange;
+  /** Set by the setup effect: fly to a face and switch to drawing mode. */
+  const lockToFaceRef = useRef<((face: ViewFace) => void) | null>(null);
+  const requestProjection = (next: CameraProjection) => {
+    if ((next === 'orthographic') === isOrthoRef.current) return;
+    isOrthoRef.current = next === 'orthographic';
+    onProjectionChangeRef.current?.(next);
+  };
   const geometryStatsRef = useRef({
     boardCount: 0,
     postCount: 0,
@@ -189,6 +238,8 @@ export default function Scene({
     startTime: number;
     toDistance: number;
     durationMs: number;
+    /** Swing around the target instead of a straight line — for big angle changes (gizmo face clicks). */
+    arc: boolean;
   }>(null);
   const pointerDownRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -221,8 +272,8 @@ export default function Scene({
       applyFogRange(fogRef.current, controls.maxDistance, shapeBoundsRef.current.radius);
     } controls.minAzimuthAngle = DEFAULT_AZIMUTH - AZIMUTH_RANGE;
     controls.maxAzimuthAngle = DEFAULT_AZIMUTH + AZIMUTH_RANGE;
-    controls.minPolarAngle = DEFAULT_POLAR - POLAR_RANGE;
-    controls.maxPolarAngle = DEFAULT_POLAR + POLAR_RANGE;
+    controls.minPolarAngle = MIN_POLAR_ANGLE;
+    controls.maxPolarAngle = MAX_POLAR_ANGLE;
   }
 
   /**
@@ -245,6 +296,9 @@ export default function Scene({
       instant?: boolean;
       preserveDistance?: boolean;
       zoomDistance?: number;
+      /** Fly to this viewing direction (unit offset from target to camera). Wins over preserveAngle. */
+      direction?: THREE.Vector3;
+      arc?: boolean;
     },
   ) {
 
@@ -276,7 +330,9 @@ export default function Scene({
     }
 
     let direction = VIEW_DIRECTION;
-    if (opts?.preserveAngle) {
+    if (opts?.direction) {
+      direction = opts.direction;
+    } else if (opts?.preserveAngle) {
       const currentOffset = camera.position.clone().sub(controls.target);
       if (currentOffset.lengthSq() > 1e-6) {
         direction = currentOffset.normalize();
@@ -302,6 +358,7 @@ export default function Scene({
       startTime: opts?.instant ? performance.now() - durationMs : performance.now(),
       toDistance: distance,
       durationMs,
+      arc: opts?.arc ?? false,
     };
     lastFrameTargetRef.current = target;
     lastPaddingRef.current = padding;
@@ -328,6 +385,25 @@ export default function Scene({
 
     const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 500);
     cameraRef.current = camera;
+    // The orthographic camera never moves on its own. OrbitControls, flyTo,
+    // wheel zoom and every distance rule keep driving the perspective
+    // camera; this one copies its pose each frame and sizes its frustum
+    // from the same distance, so switching keeps the fence the same size
+    // on screen and nothing else needed to learn about orthographic zoom.
+    const orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 500);
+    const tanHalfFov = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    const syncOrthoCamera = (target: THREE.Vector3) => {
+      const halfHeight = camera.position.distanceTo(target) * tanHalfFov;
+      orthoCamera.top = halfHeight;
+      orthoCamera.bottom = -halfHeight;
+      orthoCamera.left = -halfHeight * camera.aspect;
+      orthoCamera.right = halfHeight * camera.aspect;
+      orthoCamera.position.copy(camera.position);
+      orthoCamera.quaternion.copy(camera.quaternion);
+      orthoCamera.updateProjectionMatrix();
+      orthoCamera.updateMatrixWorld();
+    };
+    const viewCamera = (): THREE.Camera => (isOrthoRef.current ? orthoCamera : camera);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(container.clientWidth, container.clientHeight);
@@ -373,6 +449,7 @@ export default function Scene({
         position: [camera.position.x, camera.position.y, camera.position.z],
         target: [controls.target.x, controls.target.y, controls.target.z],
         distance: camera.position.distanceTo(controls.target),
+        projection: isOrthoRef.current ? 'orthographic' : 'perspective',
       });
     }
     // Fixed zoom distance per wheel step.
@@ -514,6 +591,8 @@ export default function Scene({
     moonGlow.scale.set(7, 7, 1);
     sunGlowRef.current = sunGlow;
     moonGlowRef.current = moonGlow;
+    sunGlow.renderOrder = SKY_HALO_RENDER_ORDER;
+    moonGlow.renderOrder = SKY_HALO_RENDER_ORDER;
     scene.add(sunGlow, moonGlow);
     disableFog(
       sunMesh.material as THREE.Material,
@@ -564,6 +643,8 @@ export default function Scene({
           new THREE.SpriteMaterial({ map: cloudTexture, transparent: true, depthWrite: false, opacity: 0.5 }),
         );
         shadow.scale.set(scale * 1.15, scale * 0.7, 1);
+        bright.renderOrder = CLOUD_BRIGHT_RENDER_ORDER;
+        shadow.renderOrder = CLOUD_SHADOW_RENDER_ORDER;
 
         scene.add(bright, shadow);
         disableFog(bright.material, shadow.material);
@@ -588,10 +669,8 @@ export default function Scene({
     gridMat.polygonOffsetFactor = -1;
     gridMat.polygonOffsetUnits = -1;
     scene.add(ground);
-    // Grass ground plane, same footprint as the grid above it. Offset
-    // slightly below y=0 so the grid's own lines render on top instead of
-    // fighting with the grass surface for the same depth. PlaneGeometry is
-    // built facing +Z by default, hence the -90° X rotation to lay it flat.
+    // Grass ground plane, same footprint as the grid above it. PlaneGeometry
+    // is built facing +Z by default, hence the -90° X rotation to lay it flat.
     const groundMeshGeo = new THREE.PlaneGeometry(200, 200);
     const groundMeshMat = new THREE.MeshStandardMaterial({
       color: GRASS_COLOR_HEX,
@@ -606,7 +685,13 @@ export default function Scene({
     // needs to physically sit below true ground level.
     groundMesh.receiveShadow = true;
     groundMatRef.current = groundMeshMat;
-    scene.add(groundMesh); const fenceGroup = new THREE.Group();
+    scene.add(groundMesh);
+    for (const o of [sunMesh, moonMesh, sunGlow, moonGlow, ground, groundMesh, ...cloudSprites.flatMap((c) => [c.bright, c.shadow])]) {
+      o.layers.set(ENV_LAYER);
+    }
+    camera.layers.enable(ENV_LAYER);
+    orthoCamera.layers.enable(ENV_LAYER);
+    const fenceGroup = new THREE.Group();
     fenceGroupRef.current = fenceGroup;
     scene.add(fenceGroup);
 
@@ -677,7 +762,7 @@ export default function Scene({
         ((e.clientX - rect.left) / rect.width) * 2 - 1,
         -((e.clientY - rect.top) / rect.height) * 2 + 1,
       );
-      raycaster.setFromCamera(ndc, camera);
+      raycaster.setFromCamera(ndc, viewCamera());
       const hits = raycaster.intersectObjects(fenceGroup.children, false);
       if (hits.length === 0) {
         onSelectRef.current?.(null);
@@ -797,9 +882,223 @@ export default function Scene({
         }
       }
     };
+    // Orbiting out of a locked orthographic view goes back to perspective
+    // (as in Blender). Only a primary single-pointer drag orbits — right-drag
+    // pan and wheel/pinch zoom keep the projection.
+    const handlePointerMove = (e: PointerEvent) => {
+      const down = pointerDownRef.current;
+      if (!down || !isOrthoRef.current) return;
+      if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK_MOVE_THRESHOLD_PX) {
+        requestProjection('perspective');
+      }
+    };
     renderer.domElement.addEventListener('pointerdown', handlePointerDown);
+    renderer.domElement.addEventListener('pointermove', handlePointerMove);
     renderer.domElement.addEventListener('pointerup', handlePointerUp);
     renderer.domElement.addEventListener('pointercancel', handlePointerCancel);
+
+    // ---------- navigation gizmo ----------
+    const gizmo = createViewGizmoScene(getComputedStyle(container).fontFamily || 'sans-serif');
+    const gizmoEl = gizmoElRef?.current ?? null;
+    let gizmoHovered: ViewFace | null = null;
+    let gizmoDrag: { x: number; y: number; lastX: number; lastY: number; moved: boolean; face: ViewFace | null } | null = null;
+
+    const gizmoPick = (e: PointerEvent): ViewFace | null => {
+      if (!gizmoEl) return null;
+      const r = gizmoEl.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) return null;
+      return gizmo.pick(new THREE.Vector2(
+        ((e.clientX - r.left) / r.width) * 2 - 1,
+        -((e.clientY - r.top) / r.height) * 2 + 1,
+      ));
+    };
+    const orbitFromGizmo = (dx: number, dy: number) => {
+      flyRef.current = null;
+      controls.enabled = true;
+      requestProjection('perspective');
+      const offset = orbitOffset(camera.position.clone().sub(controls.target), dx, dy);
+      camera.position.copy(controls.target).add(offset);
+      camera.lookAt(controls.target);
+      controls.update();
+    };
+    lockToFaceRef.current = (face: ViewFace) => lockToFace(face);
+    function lockToFace(face: ViewFace) {
+      requestProjection('orthographic');
+      const t = controls.target;
+      flyTo(
+        { centerX: t.x, centerY: t.y, centerZ: t.z, radius: 1 },
+        1,
+        { direction: faceOffsetDirection(face), preserveDistance: true, arc: true },
+      );
+    }
+    const handleGizmoDown = (e: PointerEvent) => {
+      if (e.button !== 0 || !gizmoEl) return;
+      gizmoDrag = { x: e.clientX, y: e.clientY, lastX: e.clientX, lastY: e.clientY, moved: false, face: gizmoPick(e) };
+      gizmoEl.setPointerCapture(e.pointerId);
+    };
+    const handleGizmoMove = (e: PointerEvent) => {
+      if (!gizmoEl) return;
+      if (!gizmoDrag) {
+        gizmoHovered = gizmoPick(e);
+        gizmoEl.style.cursor = gizmoHovered ? 'pointer' : 'grab';
+        return;
+      }
+      if (!gizmoDrag.moved && Math.hypot(e.clientX - gizmoDrag.x, e.clientY - gizmoDrag.y) > CLICK_MOVE_THRESHOLD_PX) {
+        gizmoDrag.moved = true;
+        gizmoHovered = null;
+        gizmoEl.style.cursor = 'grabbing';
+      }
+      if (gizmoDrag.moved) orbitFromGizmo(e.clientX - gizmoDrag.lastX, e.clientY - gizmoDrag.lastY);
+      gizmoDrag.lastX = e.clientX;
+      gizmoDrag.lastY = e.clientY;
+    };
+    const handleGizmoUp = () => {
+      if (gizmoDrag && !gizmoDrag.moved && gizmoDrag.face) lockToFace(gizmoDrag.face);
+      gizmoDrag = null;
+      if (gizmoEl) gizmoEl.style.cursor = gizmoHovered ? 'pointer' : 'grab';
+    };
+    const handleGizmoCancel = () => {
+      gizmoDrag = null;
+    };
+    const handleGizmoLeave = () => {
+      if (gizmoDrag) return;
+      gizmoHovered = null;
+    };
+    if (gizmoEl) {
+      gizmoEl.addEventListener('pointerdown', handleGizmoDown);
+      gizmoEl.addEventListener('pointermove', handleGizmoMove);
+      gizmoEl.addEventListener('pointerup', handleGizmoUp);
+      gizmoEl.addEventListener('pointercancel', handleGizmoCancel);
+      gizmoEl.addEventListener('pointerleave', handleGizmoLeave);
+    }
+
+    /** Draws the gizmo into its corner box with the same renderer (scissor), after the main pass. */
+    const renderGizmo = () => {
+      if (!gizmoEl) return;
+      const gr = gizmoEl.getBoundingClientRect();
+      if (gr.width === 0 || gr.height === 0) return;
+      const cr = renderer.domElement.getBoundingClientRect();
+      const offset = camera.position.clone().sub(controls.target);
+      gizmo.setState(alignedFace(offset), gizmoHovered);
+      gizmo.orient(offset, camera.quaternion);
+      gizmo.camera.aspect = gr.width / gr.height;
+      gizmo.camera.updateProjectionMatrix();
+      const x = gr.left - cr.left;
+      const y = cr.bottom - gr.bottom;
+      renderer.autoClear = false;
+      renderer.clearDepth();
+      renderer.setScissorTest(true);
+      renderer.setScissor(x, y, gr.width, gr.height);
+      renderer.setViewport(x, y, gr.width, gr.height);
+      renderer.render(gizmo.scene, gizmo.camera);
+      renderer.setScissorTest(false);
+      renderer.setViewport(0, 0, cr.width, cr.height);
+      renderer.autoClear = true;
+    };
+    // ---------- drawing mode (orthographic) ----------
+    // No sky, grass or clouds: a flat backdrop with a metric grid, the
+    // fence on top. drawingBlend fades between the two looks; while it's
+    // strictly between 0 and 1 the frame takes three passes (world, backdrop
+    // at partial opacity, fence on top), otherwise one or two.
+    const drawingGrid = createDrawingGrid();
+    let drawingBlend = isOrthoRef.current ? 1 : 0;
+    let lastBlendMs = performance.now();
+    const updateDrawingBlend = () => {
+      const now = performance.now();
+      const goal = isOrthoRef.current ? 1 : 0;
+      const step = prefersReducedMotion() ? 1 : (now - lastBlendMs) / DRAWING_FADE_MS;
+      lastBlendMs = now;
+      drawingBlend = goal > drawingBlend ? Math.min(goal, drawingBlend + step) : Math.max(goal, drawingBlend - step);
+    };
+    const renderDrawingPasses = (cam: THREE.Camera) => {
+      const offset = camera.position.clone().sub(controls.target);
+      const face = alignedFace(offset) ?? nearestFace(offset);
+      const halfHeight = offset.length() * tanHalfFov;
+      drawingGrid.update({
+        camera: cam,
+        target: controls.target,
+        face,
+        alignment: THREE.MathUtils.smoothstep(offset.clone().normalize().dot(faceOffsetDirection(face)), 0.97, 0.999),
+        pxPerMeter: container.clientHeight / (2 * halfHeight),
+        opacity: drawingBlend,
+      });
+      if (drawingBlend < 1) {
+        renderer.render(scene, cam);
+        renderer.autoClear = false;
+      }
+      renderer.render(drawingGrid.scene, cam);
+      renderer.autoClear = false;
+      renderer.clearDepth();
+      const background = scene.background;
+      const fog = scene.fog;
+      scene.background = null;
+      scene.fog = null;
+      cam.layers.disable(ENV_LAYER);
+      const restoreColors = applyFlatColors(drawingBlend);
+      renderer.render(scene, cam);
+      restoreColors();
+      cam.layers.enable(ENV_LAYER);
+      scene.background = background;
+      scene.fog = fog;
+      renderer.autoClear = true;
+    };
+    /**
+     * Drawing mode shows the fence and the wall in their own colors, with no
+     * light, shadow or reflection: the lit look is scaled down by (1 - blend)
+     * — lights and environment map — and each material's own color comes up
+     * as emissive by blend, so the fade is a straight cross-fade from lit to
+     * flat. Applies to the fence pass only and returns the undo; the
+     * day/night effect stays the owner of the real light values.
+     */
+    const applyFlatColors = (blend: number) => {
+      const lit = 1 - blend;
+      const savedLights = {
+        ambient: ambient.intensity,
+        sky: sky.intensity,
+        env: scene.environmentIntensity,
+      };
+      ambient.intensity *= lit;
+      sky.intensity *= lit;
+      scene.environmentIntensity *= lit;
+
+      const materials = new Set<THREE.MeshStandardMaterial>();
+      fenceGroup.traverse((o) => {
+        const m = (o as THREE.Mesh).material;
+        if (m instanceof THREE.MeshStandardMaterial) materials.add(m);
+      });
+      const savedMaterials = [...materials].map((m) => ({
+        m,
+        emissive: m.emissive.clone(),
+        emissiveIntensity: m.emissiveIntensity,
+      }));
+      for (const { m, emissive, emissiveIntensity } of savedMaterials) {
+        // Keep the selection glow (withHighlight's emissive) on top of the flat color.
+        m.emissive.copy(m.color).multiplyScalar(blend).add(emissive.clone().multiplyScalar(emissiveIntensity));
+        m.emissiveIntensity = 1;
+      }
+
+      return () => {
+        ambient.intensity = savedLights.ambient;
+        sky.intensity = savedLights.sky;
+        scene.environmentIntensity = savedLights.env;
+        for (const { m, emissive, emissiveIntensity } of savedMaterials) {
+          m.emissive.copy(emissive);
+          m.emissiveIntensity = emissiveIntensity;
+        }
+      };
+    };
+    /** One full frame: main view (whichever projection), then the gizmo. Returns the fence pass's own render stats. */
+    const renderFrame = () => {
+      syncOrthoCamera(controls.target);
+      updateDrawingBlend();
+      const cam = viewCamera();
+      if (drawingBlend > 0) renderDrawingPasses(cam);
+      else renderer.render(scene, cam);
+      const calls = renderer.info.render.calls;
+      const triangles = renderer.info.render.triangles;
+      renderGizmo();
+      return { calls, triangles };
+    };
 
     let frameCount = 0;
     let lastFpsSample = performance.now();
@@ -837,8 +1136,16 @@ export default function Scene({
       if (fly) {
         const t = Math.min(1, (performance.now() - fly.startTime) / fly.durationMs);
         const eased = easeInOutQuad(t);
-        camera.position.lerpVectors(fly.fromPos, fly.toPos, eased);
         const curTarget = new THREE.Vector3().lerpVectors(fly.fromTarget, fly.toTarget, eased);
+        if (fly.arc) {
+          camera.position.copy(curTarget).add(interpolateOffset(
+            fly.fromPos.clone().sub(fly.fromTarget),
+            fly.toPos.clone().sub(fly.toTarget),
+            eased,
+          ));
+        } else {
+          camera.position.lerpVectors(fly.fromPos, fly.toPos, eased);
+        }
         controls.target.copy(curTarget);
         camera.lookAt(curTarget);
 
@@ -867,7 +1174,7 @@ export default function Scene({
         cloud.bright.position.copy(pos);
         cloud.shadow.position.set(pos.x, pos.y - CLOUD_SHADOW_Y_OFFSET_M, pos.z);
       }
-      renderer.render(scene, camera);
+      const mainPass = renderFrame();
       frameCount++;
       const now = performance.now();
       if (now - lastFpsSample >= 500) {
@@ -876,8 +1183,8 @@ export default function Scene({
         lastFpsSample = now;
         onStatsRef.current?.({
           fps,
-          drawCalls: renderer.info.render.calls,
-          triangles: renderer.info.render.triangles,
+          drawCalls: mainPass.calls,
+          triangles: mainPass.triangles,
           ...geometryStatsRef.current,
         });
       }
@@ -992,7 +1299,7 @@ export default function Scene({
 
       lastAspectRef.current = newAspect;
 
-      renderer.render(scene, camera);
+      renderFrame();
     };
 
     const handleResize = () => {
@@ -1010,10 +1317,20 @@ export default function Scene({
       if (resizeRaf !== null) cancelAnimationFrame(resizeRaf);
       resizeObserver.disconnect();
       renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
+      renderer.domElement.removeEventListener('pointermove', handlePointerMove);
       renderer.domElement.removeEventListener('pointerup', handlePointerUp);
       renderer.domElement.removeEventListener('pointercancel', handlePointerCancel);
       renderer.domElement.removeEventListener('wheel', handleWheelZoom, true);
       controls.dispose();
+      if (gizmoEl) {
+        gizmoEl.removeEventListener('pointerdown', handleGizmoDown);
+        gizmoEl.removeEventListener('pointermove', handleGizmoMove);
+        gizmoEl.removeEventListener('pointerup', handleGizmoUp);
+        gizmoEl.removeEventListener('pointercancel', handleGizmoCancel);
+        gizmoEl.removeEventListener('pointerleave', handleGizmoLeave);
+      }
+      gizmo.dispose();
+      drawingGrid.dispose();
       if (cameraSnapshotRef) cameraSnapshotRef.current = null;
       renderer.dispose();
       scene.environment?.dispose();
@@ -1392,6 +1709,19 @@ sky.shadow.radius = THREE.MathUtils.lerp(
     flyTo(target, FOCUS_EDIT_PADDING, { preserveAngle: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [legCameraFocus]);
+
+  // Orthographic only ever exists locked to a face. When the toggle turns it
+  // on from a free angle, swing to the nearest face. A gizmo face click has
+  // already started its own swing (arc fly) by the time this runs — leave it.
+  useEffect(() => {
+    if (projection !== 'orthographic') return;
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    if (!camera || !controls || flyRef.current?.arc) return;
+    const offset = camera.position.clone().sub(controls.target);
+    if (alignedFace(offset)) return;
+    lockToFaceRef.current?.(nearestFace(offset));
+  }, [projection]);
 
   // Whole-fence framing on request — keeps the viewer's current angle.
   useEffect(() => {

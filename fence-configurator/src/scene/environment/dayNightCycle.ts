@@ -14,10 +14,9 @@ const MOON_BRIGHTNESS_SCALE = 0.5;
  * Redraws the 3-stop (top/mid/horizon) sky gradient onto the given canvas
  * in place, and flags its CanvasTexture for re-upload. A flat 2D texture
  * assigned to scene.background renders as a fixed backdrop quad (not
- * equirectangular-mapped), which is fine here since the camera's own
- * azimuth/polar range is already locked to a narrow band (see
- * AZIMUTH_RANGE/POLAR_RANGE in Scene.tsx) — the sky never needs to wrap
- * around behind the viewer.
+ * equirectangular-mapped). The camera never looks up from below the
+ * horizon (MAX_POLAR_ANGLE in camera/viewGizmo.ts), and looking straight
+ * down fills the frame with grass, so the flat backdrop holds up.
  */
 export function drawSkyGradient(
   canvas: HTMLCanvasElement,

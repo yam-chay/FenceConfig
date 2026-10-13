@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { SPACER_OPTIONS } from './scene/spacerOptions';
 import Scene, { type CameraSnapshot, type ColorScheme, type ProfileScheme, type Selection } from './scene/Scene';
+import type { CameraProjection } from './scene/camera/viewGizmo';
 import type { Shape, Junction } from './geometry/shape';
 import { FENCE_CATALOG } from './geometry/catalog';
 import { POST_THICKNESS_CM, POST_ACCESSORY_WIDTH_MULTIPLIER } from './geometry/constants';
@@ -14,6 +15,7 @@ import { usePanelState } from './app/hooks/usePanelState';
 import { useFenceEditor } from './app/hooks/useFenceEditor';
 import {
   readInitialDesign,
+  fetchSharedDesign,
   makeSnapshot,
   saveLocalDesign,
   isViewHash,
@@ -102,7 +104,7 @@ function buildBugReport(args: {
   const { description, snapshot, selection, stats, camera } = args;
   const vec = (v: [number, number, number]) => v.map((n) => n.toFixed(2)).join(', ');
   const cameraLine = camera
-    ? `מצלמה: מיקום (${vec(camera.position)}) · מבט אל (${vec(camera.target)}) · מרחק ${camera.distance.toFixed(2)} מ׳`
+    ? `מצלמה: מיקום (${vec(camera.position)}) · מבט אל (${vec(camera.target)}) · מרחק ${camera.distance.toFixed(2)} מ׳ · ${camera.projection === 'orthographic' ? 'אורתוגרפי' : 'פרספקטיבה'}`
     : 'מצלמה: לא זמין';
   const version = [BUILD_SHA, BUILD_ENV, BUILD_BRANCH].filter(Boolean).join(' · ');
   return [
@@ -265,6 +267,9 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
   const cameraSnapshotRef = useRef<(() => CameraSnapshot) | null>(null);
   /** Bumped to fly the camera back to the whole fence (view mode). */
   const [frameAllNonce, setFrameAllNonce] = useState(0);
+  const [projection, setProjection] = useState<CameraProjection>('perspective');
+  /** Box under the history buttons that Scene draws the navigation gizmo into. */
+  const gizmoRef = useRef<HTMLDivElement>(null);
   /** Mobile edit sheet shows one category at a time. */
   const [sheetSection, setSheetSection] = useState<'profile' | 'spacer' | 'color'>('profile');
 
@@ -428,6 +433,9 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
             timeOfDayHours={timeOfDayHours}
             frameAllRequest={frameAllNonce}
             cameraSnapshotRef={cameraSnapshotRef}
+            projection={projection}
+            onProjectionChange={setProjection}
+            gizmoElRef={gizmoRef}
           />
 
           <div className={showFenceTab || showEditTab ? 'time-dial time-dial-raised' : 'time-dial'}>
@@ -567,6 +575,7 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
           )}
 
           {!isView && (
+            <div className="corner-tools">
             <div className="history-controls">
               <button
                 className={undoPulse ? 'history-btn history-btn-pulse' : 'history-btn'}
@@ -600,6 +609,36 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
                   <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
                   <path d="M3 3v5h5" />
                 </svg>
+              </button>
+            </div>
+              {/* Desktop only (CSS). Scene draws into this box and handles its pointer input. */}
+              <div
+                ref={gizmoRef}
+                className="view-gizmo"
+                title="לחיצה על פאה: מבט נעול · גרירה: סיבוב"
+              />
+              <button
+                type="button"
+                className={projection === 'orthographic' ? 'projection-btn projection-btn-ortho' : 'projection-btn'}
+                onClick={() => setProjection((p) => (p === 'orthographic' ? 'perspective' : 'orthographic'))}
+                aria-pressed={projection === 'orthographic'}
+                title="החלפה בין פרספקטיבה לאורתוגרפי"
+              >
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
+                  <circle cx="12" cy="13" r="3" />
+                </svg>
+                {projection === 'orthographic' ? 'אורתוגרפי' : 'פרספקטיבה'}
               </button>
             </div>
           )}
@@ -1103,14 +1142,29 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
 /**
  * Entry: reads mode + saved/linked design once, then renders. A broken view
  * link never falls through to the editor — a customer must never land in it.
+ * Short links (/v/<id>) fetch the design first; until then a loading notice.
  */
 export default function App() {
-  const [initial] = useState(readInitialDesign);
-  const brokenViewLink = initial.mode === 'view' && !initial.design;
+  const [initial, setInitial] = useState(readInitialDesign);
+  const shareId = initial.design ? undefined : initial.shareId;
+
+  useEffect(() => {
+    if (!shareId) return;
+    const controller = new AbortController();
+    fetchSharedDesign(shareId, controller.signal).then((design) => {
+      if (controller.signal.aborted) return;
+      setInitial({ mode: 'view', design });
+    });
+    return () => controller.abort();
+  }, [shareId]);
+
+  const brokenViewLink = initial.mode === 'view' && !initial.design && !shareId;
 
   return (
     <DesignErrorBoundary mode={initial.mode}>
-      {brokenViewLink ? (
+      {shareId ? (
+        <CenteredNotice title="טוען הדמיה..." body="רק רגע, מכינים את הגדר שלכם." />
+      ) : brokenViewLink ? (
         <CenteredNotice
           title="הקישור לא תקין"
           body="לא הצלחנו לפתוח את ההדמיה מהקישור הזה. ייתכן שהוא נקטע בהעתקה — אפשר לבקש קישור חדש."

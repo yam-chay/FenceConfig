@@ -18,7 +18,7 @@ const TURN_RAD: Record<'left' | 'right' | 'straight', number> = {
   straight: 0,
 };
 /** Small gap between the two independent posts at a 'disconnect' junction — just enough to read as two separate posts, not a real site distance. */
-const DISCONNECT_GAP_M = 0.15;
+const DISCONNECT_GAP_M = 0.3;
 
 /** Lays out the whole shape as one continuous walk. Junctions never reposition the walk to a new origin — even a 'disconnect' just continues from wherever the wall physically steps, which is what keeps its two posts close together. */
 export function layoutShape(shape: Shape): ShapeLayout {

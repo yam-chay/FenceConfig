@@ -1,173 +1,34 @@
 /**
- * Design persistence — one snapshot format, two destinations:
- * localStorage (autosave in the editor) and the URL hash (view-only link).
+ * Design persistence — one snapshot format, three destinations:
+ * localStorage (autosave in the editor), the short view link (/v/<id>,
+ * stored server-side by /api/share), and the legacy URL-hash view link
+ * (#view=…), which is also the fallback when the server is unreachable.
  *
- * RULE: bump SNAPSHOT_VERSION only on an incompatible change to Shape or
- * the rule types, and ALWAYS add a migration from the previous version
- * alongside it (see migrateV1) — a bump without one silently drops old
- * local saves AND breaks every view link already sent.
- *
- * v2: Leg.heightCm (top height from the GROUND) became Leg.fenceHeightCm
- * (the product's own height: wall top → cap top), and field-scoped rule
- * anchors became relative to their leg's fence base instead of the ground.
+ * The format and its versioning RULE live in snapshot.ts.
  */
 
 import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from 'lz-string';
-import type { Shape, Leg } from '../geometry/shape';
+import type { Shape } from '../geometry/shape';
 import type { ColorScheme, ProfileScheme } from '../scene/Scene';
-import { FENCE_CATALOG } from '../geometry/catalog';
-import { POST_CAP_HEIGHT_CM } from '../geometry/constants';
+import { SNAPSHOT_VERSION, isValidSnapshot, migrateSnapshot, type DesignSnapshot } from './snapshot';
 
-export const SNAPSHOT_VERSION = 2;
+export type { DesignSnapshot };
+
 const STORAGE_KEY = 'mld-fence-sim:design';
 const VIEW_HASH_PREFIX = '#view=';
-
-export interface DesignSnapshot {
-  v: typeof SNAPSHOT_VERSION;
-  shape: Shape;
-  colorScheme: ColorScheme;
-  profileScheme: ProfileScheme;
-}
 
 export type AppMode = 'edit' | 'view';
 
 export interface InitialDesign {
   mode: AppMode;
-  /** null in edit mode = no save yet; null in view mode = broken link. */
+  /** null in edit mode = no save yet; null in view mode = broken link (unless shareId is set). */
   design: DesignSnapshot | null;
+  /** Short view link (/v/<id>): the design must still be fetched with fetchSharedDesign. */
+  shareId?: string;
 }
 
 export function makeSnapshot(shape: Shape, colorScheme: ColorScheme, profileScheme: ProfileScheme): DesignSnapshot {
   return { v: SNAPSHOT_VERSION, shape, colorScheme, profileScheme };
-}
-
-// ---------------------------------------------------------------------------
-// Validation — structural, not exhaustive. Catches old/foreign/corrupted
-// data before it reaches geometry code, where it would crash instead.
-// ---------------------------------------------------------------------------
-
-type Rec = Record<string, unknown>;
-const isObj = (x: unknown): x is Rec => typeof x === 'object' && x !== null && !Array.isArray(x);
-const isNum = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
-const isStr = (x: unknown): x is string => typeof x === 'string';
-
-const JUNCTION_TYPES = new Set(['left', 'right', 'straight', 'disconnect']);
-const DIRECTIONS = new Set(['exact', 'below', 'above']);
-
-/** The catalog is still placeholder — ids can disappear between versions. */
-function catalogHas(modelId: unknown, sizeId: unknown): boolean {
-  if (!isStr(modelId) || !isStr(sizeId)) return false;
-  const model = FENCE_CATALOG.find((m) => m.id === modelId);
-  return !!model && model.sizes.some((s) => s.id === sizeId);
-}
-
-function isLeg(x: unknown): x is Leg {
-  return (
-    isObj(x) &&
-    isNum(x.lengthM) &&
-    isNum(x.baseHeightCm) &&
-    isNum(x.fenceHeightCm) &&
-    isNum(x.wallWidthCm) &&
-    catalogHas(x.modelId, x.sizeId)
-  );
-}
-
-function isShape(x: unknown): x is Shape {
-  if (!isObj(x) || !Array.isArray(x.legs) || !Array.isArray(x.junctions)) return false;
-  if (x.legs.length === 0 || !x.legs.every(isLeg)) return false;
-  if (x.junctions.length !== x.legs.length - 1) return false;
-  return x.junctions.every((j) => isObj(j) && isStr(j.type) && JUNCTION_TYPES.has(j.type));
-}
-
-/** Fields shared by color, profile and spacer rules. */
-function isRuleBase(r: unknown): r is Rec {
-  if (!isObj(r) || !isNum(r.stepIndex) || !isNum(r.anchorHeightCm)) return false;
-  if (!isStr(r.direction) || !DIRECTIONS.has(r.direction)) return false;
-  if (r.scope === 'global') return true;
-  return r.scope === 'field' && isNum(r.legIndex) && isNum(r.fieldIndex);
-}
-
-function isColorScheme(x: unknown): x is ColorScheme {
-  return (
-    isObj(x) &&
-    isStr(x.postColorHex) &&
-    isStr(x.baseBoardColorHex) &&
-    Array.isArray(x.boardRules) &&
-    x.boardRules.every((r) => isRuleBase(r) && isStr(r.colorHex))
-  );
-}
-
-function isProfileScheme(x: unknown): x is ProfileScheme {
-  return (
-    isObj(x) &&
-    Array.isArray(x.rules) &&
-    Array.isArray(x.spacerRules) &&
-    x.rules.every((r) => isRuleBase(r) && catalogHas(r.modelId, r.sizeId)) &&
-    x.spacerRules.every((r) => isRuleBase(r) && isNum(r.multiplier))
-  );
-}
-
-export function isValidSnapshot(x: unknown): x is DesignSnapshot {
-  return (
-    isObj(x) &&
-    x.v === SNAPSHOT_VERSION &&
-    isShape(x.shape) &&
-    isColorScheme(x.colorScheme) &&
-    isProfileScheme(x.profileScheme)
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Migrations — each takes the raw previous-version object and returns the
-// raw next-version one; validation still runs on the result. Mutation-free.
-// ---------------------------------------------------------------------------
-
-const roundCm = (n: number) => Math.round(n * 1000) / 1000;
-
-/**
- * v1 → v2. Old heightCm included the wall; the fence itself was
- * (heightCm − baseHeightCm) up to the post body's top, with the cap above
- * it. The new fenceHeightCm includes the cap, so it's added back here —
- * the board stack every old design fills stays identical. Field-scoped
- * rule anchors drop their leg's wall height to become fence-relative.
- */
-function migrateV1(x: Rec): Rec {
-  if (!isObj(x.shape) || !Array.isArray(x.shape.legs)) return x;
-  const legs = x.shape.legs as unknown[];
-  const baseOf = (legIndex: unknown): number => {
-    const leg = isNum(legIndex) ? legs[legIndex] : undefined;
-    return isObj(leg) && isNum(leg.baseHeightCm) ? leg.baseHeightCm : 0;
-  };
-  const migrateLeg = (leg: unknown) => {
-    if (!isObj(leg) || !isNum(leg.heightCm) || !isNum(leg.baseHeightCm)) return leg;
-    const { heightCm, ...rest } = leg;
-    return { ...rest, fenceHeightCm: roundCm(heightCm - leg.baseHeightCm + POST_CAP_HEIGHT_CM) };
-  };
-  const migrateRules = (rules: unknown) =>
-    Array.isArray(rules)
-      ? rules.map((r) =>
-          isObj(r) && r.scope === 'field' && isNum(r.anchorHeightCm)
-            ? { ...r, anchorHeightCm: roundCm(r.anchorHeightCm - baseOf(r.legIndex)) }
-            : r,
-        )
-      : rules;
-  const color = isObj(x.colorScheme) ? x.colorScheme : null;
-  const profile = isObj(x.profileScheme) ? x.profileScheme : null;
-  return {
-    ...x,
-    v: 2,
-    shape: { ...x.shape, legs: legs.map(migrateLeg) },
-    colorScheme: color ? { ...color, boardRules: migrateRules(color.boardRules) } : x.colorScheme,
-    profileScheme: profile
-      ? { ...profile, rules: migrateRules(profile.rules), spacerRules: migrateRules(profile.spacerRules) }
-      : x.profileScheme,
-  };
-}
-
-/** Brings any known older snapshot up to SNAPSHOT_VERSION; unknown input passes through to fail validation. */
-export function migrateSnapshot(x: unknown): unknown {
-  if (isObj(x) && x.v === 1) return migrateV1(x);
-  return x;
 }
 
 function parseSnapshot(json: string | null): DesignSnapshot | null {
@@ -230,9 +91,84 @@ function decodeViewHash(hash: string): DesignSnapshot | null {
   }
 }
 
-/** Read once at startup. A view hash always means view mode — even when broken. */
+// ---------------------------------------------------------------------------
+// Short view link — /v/<id>. vercel.json rewrites /v/* to index.html; the
+// snapshot itself lives in Redis behind /api/share. Every failure resolves to
+// null so callers can fall back (share button) or show the broken-link notice.
+// ---------------------------------------------------------------------------
+
+const SHORT_PATH_PREFIX = '/v/';
+const SHARE_ID_RE = /^[0-9A-Za-z]{6,16}$/;
+const SHARE_API = '/api/share';
+const CREATE_TIMEOUT_MS = 6000;
+const FETCH_TIMEOUT_MS = 12000;
+
+/**
+ * fetch with a timeout and an optional caller signal. Built by hand — the
+ * AbortSignal.timeout/any helpers are missing on older iOS Safari, where a
+ * throw here would surface to a customer as a "broken link".
+ */
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number, signal?: AbortSignal): Promise<Response> {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  const timer = window.setTimeout(abort, timeoutMs);
+  signal?.addEventListener('abort', abort);
+  if (signal?.aborted) abort();
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timer);
+    signal?.removeEventListener('abort', abort);
+  }
+}
+
+/** undefined = not a short-link path; null = short-link path with a malformed id. */
+export function parseShortLinkPath(pathname: string): string | null | undefined {
+  if (!pathname.startsWith(SHORT_PATH_PREFIX)) return undefined;
+  const id = pathname.slice(SHORT_PATH_PREFIX.length).replace(/\/$/, '');
+  return SHARE_ID_RE.test(id) ? id : null;
+}
+
+/** Stores the snapshot and returns /v/<id>, or null on any failure. */
+export async function createShortShareUrl(snapshot: DesignSnapshot): Promise<string | null> {
+  try {
+    const res = await fetchWithTimeout(
+      SHARE_API,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(snapshot) },
+      CREATE_TIMEOUT_MS,
+    );
+    if (!res.ok) return null;
+    const body: unknown = await res.json();
+    const id = (body as { id?: unknown } | null)?.id;
+    if (typeof id !== 'string' || !SHARE_ID_RE.test(id)) return null;
+    return `${window.location.origin}${SHORT_PATH_PREFIX}${id}`;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchSharedDesign(id: string, signal?: AbortSignal): Promise<DesignSnapshot | null> {
+  try {
+    const res = await fetchWithTimeout(`${SHARE_API}?id=${encodeURIComponent(id)}`, {}, FETCH_TIMEOUT_MS, signal);
+    if (!res.ok) return null;
+    // Older links in Redis keep their original version — migrate on read.
+    const body: unknown = migrateSnapshot(await res.json());
+    // Re-validate: the catalog can change between when a link was made and now.
+    return isValidSnapshot(body) ? body : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read once at startup. A view hash or a /v/ path always means view mode —
+ * even when broken. The hash is checked first so old links behave exactly as
+ * before.
+ */
 export function readInitialDesign(): InitialDesign {
   const hash = window.location.hash;
   if (isViewHash(hash)) return { mode: 'view', design: decodeViewHash(hash) };
+  const shareId = parseShortLinkPath(window.location.pathname);
+  if (shareId !== undefined) return shareId ? { mode: 'view', design: null, shareId } : { mode: 'view', design: null };
   return { mode: 'edit', design: loadLocalDesign() };
 }
