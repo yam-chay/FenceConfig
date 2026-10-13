@@ -8,13 +8,6 @@ import * as THREE from 'three';
 export const MIN_POLAR_ANGLE = 0.01;
 /** The horizon. The camera may look across the grass, never up at it from below. */
 export const MAX_POLAR_ANGLE = Math.PI / 2;
-/**
- * Side views look down by this much rather than dead level. A level
- * orthographic camera sees the ground plane exactly edge-on, so the grass
- * vanishes and the lower half of the frame turns to sky; 2° brings it back
- * while foreshortening the fence by 0.06% — invisible.
- */
-export const SIDE_VIEW_TILT_RAD = (2 * Math.PI) / 180;
 
 export type CameraProjection = 'perspective' | 'orthographic';
 export type ViewFace = 'front' | 'back' | 'right' | 'left' | 'top';
@@ -36,7 +29,9 @@ export const VIEW_FACE_LABELS: Record<ViewFace, string> = {
  * leg, which always runs along +X). The top view keeps theta 0 so front
  * stays at the bottom of the screen instead of the plan coming in rotated.
  */
-const SIDE_PHI = MAX_POLAR_ANGLE - SIDE_VIEW_TILT_RAD;
+// Side views are dead level: drawing mode hides the grass, so a true
+// elevation has nothing to lose.
+const SIDE_PHI = MAX_POLAR_ANGLE;
 const FACE_ANGLES: Record<ViewFace, { theta: number; phi: number }> = {
   front: { theta: 0, phi: SIDE_PHI },
   back: { theta: Math.PI, phi: SIDE_PHI },
@@ -62,6 +57,21 @@ export function alignedFace(offset: THREE.Vector3): ViewFace | null {
     if (dir.dot(faceOffsetDirection(face)) > ALIGNED_DOT) return face;
   }
   return null;
+}
+
+/** The face closest to the current viewing direction — where the projection toggle snaps to from a free angle. */
+export function nearestFace(offset: THREE.Vector3): ViewFace {
+  const dir = offset.clone().normalize();
+  let best: ViewFace = 'front';
+  let bestDot = -Infinity;
+  for (const face of VIEW_FACES) {
+    const d = dir.dot(faceOffsetDirection(face));
+    if (d > bestDot) {
+      bestDot = d;
+      best = face;
+    }
+  }
+  return best;
 }
 
 /** Drag on the gizmo: radians of orbit per pixel moved. */

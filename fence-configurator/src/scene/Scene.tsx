@@ -42,11 +42,13 @@ import {
   alignedFace,
   faceOffsetDirection,
   interpolateOffset,
+  nearestFace,
   orbitOffset,
   type CameraProjection,
   type ViewFace,
 } from './camera/viewGizmo';
 import { createViewGizmoScene } from './camera/viewGizmoScene';
+import { createDrawingGrid } from './environment/drawingGrid';
 import { GRASS_COLOR_HEX, GRID_OPACITY } from './materials/materials';
 import { SHADOW_MAP_SIZE, SHADOW_FRUSTUM_MARGIN_M } from './environment/lighting';
 import { createSceneFog, applyFogRange, disableFog } from './environment/fog';
@@ -139,8 +141,15 @@ const PORTRAIT_HFIT_WEIGHT = 0.7;
 const PAN_SPEED = 0.7;
 /** How far past the fence's own footprint a pan may carry the view target, meters. */
 const PAN_MARGIN_M = 2;
-/** Grass plane side, meters. See where it's built for why it outsizes the grid. */
-const GROUND_PLANE_SIZE_M = 1000;
+/**
+ * The world around the fence — sky bodies, clouds, grass, grid — lives on
+ * this layer so drawing mode can render the fence without it. Layers rather
+ * than .visible, because the day/night effect owns the sun/moon visibility.
+ */
+const ENV_LAYER = 1;
+/** Fade between the 3D world and drawing mode's flat backdrop. */
+const DRAWING_FADE_MS = 280;
+const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 export default function Scene({
   shape,
@@ -195,6 +204,8 @@ export default function Scene({
   isOrthoRef.current = projection === 'orthographic';
   const onProjectionChangeRef = useRef(onProjectionChange);
   onProjectionChangeRef.current = onProjectionChange;
+  /** Set by the setup effect: fly to a face and switch to drawing mode. */
+  const lockToFaceRef = useRef<((face: ViewFace) => void) | null>(null);
   const requestProjection = (next: CameraProjection) => {
     if ((next === 'orthographic') === isOrthoRef.current) return;
     isOrthoRef.current = next === 'orthographic';
@@ -377,12 +388,7 @@ export default function Scene({
     // camera; this one copies its pose each frame and sizes its frustum
     // from the same distance, so switching keeps the fence the same size
     // on screen and nothing else needed to learn about orthographic zoom.
-    // Negative near: an orthographic image doesn't depend on where along
-    // the view line the camera sits, so it also draws the grass between the
-    // camera and the viewer — without it the bottom of a near-level side
-    // view is cut off and shows sky. Fog is unaffected (depth stays
-    // measured from the real camera position).
-    const orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, -500, 500);
+    const orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 500);
     const tanHalfFov = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
     const syncOrthoCamera = (target: THREE.Vector3) => {
       const halfHeight = camera.position.distanceTo(target) * tanHalfFov;
@@ -657,13 +663,9 @@ export default function Scene({
     gridMat.polygonOffsetFactor = -1;
     gridMat.polygonOffsetUnits = -1;
     scene.add(ground);
-    // Grass ground plane. PlaneGeometry is built facing +Z by default,
-    // hence the -90° X rotation to lay it flat.
-    // Wider than the grid on purpose: a near-level orthographic side view
-    // sees far more of the plane than any perspective view, and an edge
-    // there shows as a band of sky under the fence. Everything past the fog
-    // band is horizon-colored either way, so perspective looks the same.
-    const groundMeshGeo = new THREE.PlaneGeometry(GROUND_PLANE_SIZE_M, GROUND_PLANE_SIZE_M);
+    // Grass ground plane, same footprint as the grid above it. PlaneGeometry
+    // is built facing +Z by default, hence the -90° X rotation to lay it flat.
+    const groundMeshGeo = new THREE.PlaneGeometry(200, 200);
     const groundMeshMat = new THREE.MeshStandardMaterial({
       color: GRASS_COLOR_HEX,
       roughness: 1,
@@ -677,7 +679,13 @@ export default function Scene({
     // needs to physically sit below true ground level.
     groundMesh.receiveShadow = true;
     groundMatRef.current = groundMeshMat;
-    scene.add(groundMesh); const fenceGroup = new THREE.Group();
+    scene.add(groundMesh);
+    for (const o of [sunMesh, moonMesh, sunGlow, moonGlow, ground, groundMesh, ...cloudSprites.flatMap((c) => [c.bright, c.shadow])]) {
+      o.layers.set(ENV_LAYER);
+    }
+    camera.layers.enable(ENV_LAYER);
+    orthoCamera.layers.enable(ENV_LAYER);
+    const fenceGroup = new THREE.Group();
     fenceGroupRef.current = fenceGroup;
     scene.add(fenceGroup);
 
@@ -907,7 +915,8 @@ export default function Scene({
       camera.lookAt(controls.target);
       controls.update();
     };
-    const lockToFace = (face: ViewFace) => {
+    lockToFaceRef.current = (face: ViewFace) => lockToFace(face);
+    function lockToFace(face: ViewFace) {
       requestProjection('orthographic');
       const t = controls.target;
       flyTo(
@@ -915,7 +924,7 @@ export default function Scene({
         1,
         { direction: faceOffsetDirection(face), preserveDistance: true, arc: true },
       );
-    };
+    }
     const handleGizmoDown = (e: PointerEvent) => {
       if (e.button !== 0 || !gizmoEl) return;
       gizmoDrag = { x: e.clientX, y: e.clientY, lastX: e.clientX, lastY: e.clientY, moved: false, face: gizmoPick(e) };
@@ -980,10 +989,58 @@ export default function Scene({
       renderer.setViewport(0, 0, cr.width, cr.height);
       renderer.autoClear = true;
     };
-    /** One full frame: main view (whichever projection), then the gizmo. Returns the main pass's own render stats. */
+    // ---------- drawing mode (orthographic) ----------
+    // No sky, grass or clouds: a flat backdrop with a metric grid, the
+    // fence on top. drawingBlend fades between the two looks; while it's
+    // strictly between 0 and 1 the frame takes three passes (world, backdrop
+    // at partial opacity, fence on top), otherwise one or two.
+    const drawingGrid = createDrawingGrid();
+    let drawingBlend = isOrthoRef.current ? 1 : 0;
+    let lastBlendMs = performance.now();
+    const updateDrawingBlend = () => {
+      const now = performance.now();
+      const goal = isOrthoRef.current ? 1 : 0;
+      const step = prefersReducedMotion() ? 1 : (now - lastBlendMs) / DRAWING_FADE_MS;
+      lastBlendMs = now;
+      drawingBlend = goal > drawingBlend ? Math.min(goal, drawingBlend + step) : Math.max(goal, drawingBlend - step);
+    };
+    const renderDrawingPasses = (cam: THREE.Camera) => {
+      const offset = camera.position.clone().sub(controls.target);
+      const face = alignedFace(offset) ?? nearestFace(offset);
+      const halfHeight = offset.length() * tanHalfFov;
+      drawingGrid.update({
+        camera: cam,
+        target: controls.target,
+        face,
+        alignment: THREE.MathUtils.smoothstep(offset.clone().normalize().dot(faceOffsetDirection(face)), 0.97, 0.999),
+        pxPerMeter: container.clientHeight / (2 * halfHeight),
+        opacity: drawingBlend,
+      });
+      if (drawingBlend < 1) {
+        renderer.render(scene, cam);
+        renderer.autoClear = false;
+      }
+      renderer.render(drawingGrid.scene, cam);
+      renderer.autoClear = false;
+      renderer.clearDepth();
+      const background = scene.background;
+      const fog = scene.fog;
+      scene.background = null;
+      scene.fog = null;
+      cam.layers.disable(ENV_LAYER);
+      renderer.render(scene, cam);
+      cam.layers.enable(ENV_LAYER);
+      scene.background = background;
+      scene.fog = fog;
+      renderer.autoClear = true;
+    };
+    /** One full frame: main view (whichever projection), then the gizmo. Returns the fence pass's own render stats. */
     const renderFrame = () => {
       syncOrthoCamera(controls.target);
-      renderer.render(scene, viewCamera());
+      updateDrawingBlend();
+      const cam = viewCamera();
+      if (drawingBlend > 0) renderDrawingPasses(cam);
+      else renderer.render(scene, cam);
       const calls = renderer.info.render.calls;
       const triangles = renderer.info.render.triangles;
       renderGizmo();
@@ -1220,6 +1277,7 @@ export default function Scene({
         gizmoEl.removeEventListener('pointerleave', handleGizmoLeave);
       }
       gizmo.dispose();
+      drawingGrid.dispose();
       if (cameraSnapshotRef) cameraSnapshotRef.current = null;
       renderer.dispose();
       scene.environment?.dispose();
@@ -1610,6 +1668,19 @@ sky.shadow.radius = THREE.MathUtils.lerp(
     flyTo(target, FOCUS_EDIT_PADDING, { preserveAngle: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [legCameraFocus]);
+
+  // Orthographic only ever exists locked to a face. When the toggle turns it
+  // on from a free angle, swing to the nearest face. A gizmo face click has
+  // already started its own swing (arc fly) by the time this runs — leave it.
+  useEffect(() => {
+    if (projection !== 'orthographic') return;
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    if (!camera || !controls || flyRef.current?.arc) return;
+    const offset = camera.position.clone().sub(controls.target);
+    if (alignedFace(offset)) return;
+    lockToFaceRef.current?.(nearestFace(offset));
+  }, [projection]);
 
   // Whole-fence framing on request — keeps the viewer's current angle.
   useEffect(() => {
