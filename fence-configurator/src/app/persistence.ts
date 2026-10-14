@@ -4,15 +4,28 @@
  * stored server-side by /api/share), and the legacy URL-hash view link
  * (#view=…), which is also the fallback when the server is unreachable.
  *
- * The format and its versioning RULE live in snapshot.ts.
+ * localStorage keeps the editor's full state (v2: every rule). View links
+ * store the baked result instead (v3, shareSnapshotFor) — readers accept
+ * both, and every link already sent keeps opening as before.
+ *
+ * The formats and the versioning RULE live in snapshot.ts.
  */
 
 import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from 'lz-string';
 import type { Shape } from '../geometry/shape';
 import type { ColorScheme, ProfileScheme } from '../scene/Scene';
-import { SNAPSHOT_VERSION, isValidSnapshot, migrateSnapshot, type DesignSnapshot } from './snapshot';
+import { SNAPSHOT_VERSION, isValidSnapshot, migrateSnapshot, type DesignSnapshot, type StoredSnapshot } from './snapshot';
+import { bakeShareSnapshot } from './bakeSnapshot';
 
-export type { DesignSnapshot };
+export type { DesignSnapshot, StoredSnapshot };
+
+/**
+ * What a customer-facing view link stores: the baked v3 result, or — when
+ * the design can't be baked — the full v2 state, which readers still accept.
+ */
+export function shareSnapshotFor(snapshot: DesignSnapshot): StoredSnapshot {
+  return bakeShareSnapshot(snapshot) ?? snapshot;
+}
 
 const STORAGE_KEY = 'mld-fence-sim:design';
 const VIEW_HASH_PREFIX = '#view=';
@@ -78,7 +91,7 @@ export function isViewHash(hash: string): boolean {
   return hash.startsWith(VIEW_HASH_PREFIX);
 }
 
-export function buildShareUrl(snapshot: DesignSnapshot): string {
+export function buildShareUrl(snapshot: StoredSnapshot): string {
   const encoded = compressToEncodedURIComponent(JSON.stringify(snapshot));
   return `${window.location.origin}${window.location.pathname}${VIEW_HASH_PREFIX}${encoded}`;
 }
@@ -130,7 +143,7 @@ export function parseShortLinkPath(pathname: string): string | null | undefined 
 }
 
 /** Stores the snapshot and returns /v/<id>, or null on any failure. */
-export async function createShortShareUrl(snapshot: DesignSnapshot): Promise<string | null> {
+export async function createShortShareUrl(snapshot: StoredSnapshot): Promise<string | null> {
   try {
     const res = await fetchWithTimeout(
       SHARE_API,
@@ -151,7 +164,7 @@ export async function fetchSharedDesign(id: string, signal?: AbortSignal): Promi
   try {
     const res = await fetchWithTimeout(`${SHARE_API}?id=${encodeURIComponent(id)}`, {}, FETCH_TIMEOUT_MS, signal);
     if (!res.ok) return null;
-    // Older links in Redis keep their original version — migrate on read.
+    // Older links in Redis keep their original version (v1/v2), new ones are v3 — migrate/expand on read.
     const body: unknown = migrateSnapshot(await res.json());
     // Re-validate: the catalog can change between when a link was made and now.
     return isValidSnapshot(body) ? body : null;

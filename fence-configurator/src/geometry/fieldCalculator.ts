@@ -1,4 +1,5 @@
-import { MAX_FIELD_LENGTH_M, SEGMENT_END_MARGIN_CM, SEGMENT_MIDDLE_MARGIN_CM } from './constants';
+// .js: also imported by the /api/share function, which runs as native ESM (see app/snapshot.ts).
+import { MAX_FIELD_LENGTH_M, SEGMENT_END_MARGIN_CM, SEGMENT_MIDDLE_MARGIN_CM } from './constants.js';
 
 const CM_PER_M = 100;
 

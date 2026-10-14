@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "cross-env CI=true vitest run"
+    "test": "cross-env CI=true vitest run",
+    "measure:shares": "cross-env CI=true vitest run scripts/measure-shares.test.ts"
   },
   "dependencies": {
     "@upstash/redis": "^1.39.0",

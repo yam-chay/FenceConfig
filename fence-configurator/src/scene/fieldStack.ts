@@ -29,7 +29,8 @@ export function fieldBoardStack(profileScheme: ProfileScheme, leg: Leg, legIndex
   const spacers = profileScheme.spacerRules
     .filter(reaches)
     .map((r) => [r.stepIndex, r.direction, r.multiplier, r.derived ? 1 : 0]);
-  const key = JSON.stringify([Math.round(fillHeightCm * 100), leg.modelId, leg.sizeId, rules, spacers]);
+  const baked = profileScheme.baked ? (profileScheme.baked[`${legIndex}:${fieldIndex}`] ?? []) : null;
+  const key = JSON.stringify([Math.round(fillHeightCm * 100), leg.modelId, leg.sizeId, rules, spacers, baked]);
 
   let stack = cache.get(key);
   if (!stack) {

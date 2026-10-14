@@ -7,7 +7,7 @@
  * same link instead of growing the store.
  */
 
-import { isValidSnapshot, migrateSnapshot } from '../../src/app/snapshot.js';
+import { isValidSnapshot, migrateSnapshot, SHARE_SNAPSHOT_VERSION } from '../../src/app/snapshot.js';
 
 export interface ShareStore {
   /** Writes only if the key is new (Redis SET NX). Resolves true if written. */
@@ -53,12 +53,16 @@ export async function handleCreate(request: Request, store: ShareStore): Promise
 
   let parsed: unknown;
   try {
-    // A tab opened before a format bump still posts the old version.
-    parsed = migrateSnapshot(JSON.parse(raw));
+    parsed = JSON.parse(raw);
   } catch {
     return json({ error: 'invalid_json' }, 400);
   }
-  if (!isValidSnapshot(parsed)) return json({ error: 'invalid_snapshot' }, 400);
+  // v3 (the share format) is stored as posted — expanding it is only for
+  // validation. Anything older is migrated to v2 first: a tab opened before
+  // a format change still posts what it knew.
+  const isShareFormat = typeof parsed === 'object' && parsed !== null && (parsed as { v?: unknown }).v === SHARE_SNAPSHOT_VERSION;
+  if (!isShareFormat) parsed = migrateSnapshot(parsed);
+  if (!isValidSnapshot(isShareFormat ? migrateSnapshot(parsed) : parsed)) return json({ error: 'invalid_snapshot' }, 400);
 
   // Re-serialize so formatting differences don't produce different ids.
   const content = JSON.stringify(parsed);
@@ -79,12 +83,15 @@ export async function handleRead(request: Request, store: ShareStore): Promise<R
   const content = await store.get(KEY_PREFIX + id);
   if (content === null) return json({ error: 'not_found' }, 404);
 
-  // Content never changes for an id (writes are SET NX), so the CDN can keep it.
+  // Content never changes for an id (writes are SET NX), so the CDN can keep
+  // it. s-maxage is what Vercel's CDN reads (it strips it before the
+  // browser); max-age alone only reached the browser, so every first open
+  // on a new device still went to Redis.
   return new Response(content, {
     status: 200,
     headers: {
       'Content-Type': 'application/json',
-      'Cache-Control': 'public, max-age=31536000, immutable',
+      'Cache-Control': 'public, max-age=31536000, s-maxage=31536000, immutable',
     },
   });
 }

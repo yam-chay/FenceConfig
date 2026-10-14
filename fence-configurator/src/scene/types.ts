@@ -38,6 +38,13 @@ export interface ColorScheme {
   /** Used by any board no rule below applies to. */
   baseBoardColorHex: string;
   boardRules: BoardColorRule[];
+  /**
+   * Final color of every board, per field ("legIndex:fieldIndex" → hex per
+   * stepIndex). Only a design opened from a v3 share link has it (see
+   * app/snapshot.ts); when present it replaces boardRules entirely. View
+   * mode only — the editor never writes it and can't edit a baked design.
+   */
+  baked?: Record<string, string[]>;
 }
 
 /**
@@ -67,6 +74,20 @@ export interface ProfileScheme {
   rules: BoardProfileRule[];
   spacerRules: SpacerRule[];
   derived?: true;
+  /**
+   * The final column of every field ("legIndex:fieldIndex" → one entry per
+   * stepIndex, bottom up). Same origin and same view-only contract as
+   * ColorScheme.baked: when present, rules and spacerRules are ignored and
+   * each field holds exactly these steps — no packing beyond them, no
+   * closure (see resolveBoardStepCandidates).
+   */
+  baked?: Record<string, BakedStep[]>;
+}
+
+export interface BakedStep {
+  modelId: string;
+  sizeId: string;
+  spacerMultiplier: number;
 }
 
 /**

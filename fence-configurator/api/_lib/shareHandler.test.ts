@@ -72,6 +72,8 @@ describe('GET /api/share', () => {
     const res = await handleRead(get(id), store);
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control')).toContain('immutable');
+    // What Vercel's CDN reads — without it every first open hits Redis.
+    expect(res.headers.get('cache-control')).toContain('s-maxage=31536000');
     expect(await res.json()).toEqual(snapshot);
   });
 
@@ -81,5 +83,38 @@ describe('GET /api/share', () => {
     expect(missing.status).toBe(404);
     expect(missing.headers.get('cache-control')).toBe('no-store');
     expect((await handleRead(get('../etc'), store)).status).toBe(400);
+  });
+});
+
+describe('share format v3', () => {
+  const v3 = {
+    v: 3,
+    colors: ['3a3f44', 'e8e6e1'],
+    profiles: [['type-1', 'size-1']],
+    post: 0,
+    legs: [[1, 0, 30, 12, 0]],
+    junctions: '',
+    fields: [[[1, '01', '00', '01']]],
+  };
+
+  it('stores a v3 snapshot as posted (not expanded) and serves it back', async () => {
+    const store = memoryStore();
+    const res = await handleCreate(post(JSON.stringify(v3)), store);
+    expect(res.status).toBe(201);
+    const { id } = await res.json();
+    expect(store.data.get(`share:${id}`)).toBe(JSON.stringify(v3));
+    expect(await (await handleRead(get(id), store)).json()).toEqual(v3);
+  });
+
+  it('rejects a malformed v3', async () => {
+    const store = memoryStore();
+    const bad = { ...v3, fields: [[[1, '01', '0', '01']]] };
+    expect((await handleCreate(post(JSON.stringify(bad)), store)).status).toBe(400);
+    expect(store.data.size).toBe(0);
+  });
+
+  it('still accepts v2 from a tab opened before the change', async () => {
+    const store = memoryStore();
+    expect((await handleCreate(post(JSON.stringify(snapshot)), store)).status).toBe(201);
   });
 });

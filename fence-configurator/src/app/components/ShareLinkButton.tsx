@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { buildShareUrl, createShortShareUrl, type DesignSnapshot } from '../persistence';
+import { buildShareUrl, createShortShareUrl, shareSnapshotFor, type DesignSnapshot } from '../persistence';
 
 /** Past this, some messaging apps start truncating links. Only the long fallback link gets near it. */
 const LONG_URL_WARN_CHARS = 4000;
@@ -48,7 +48,8 @@ export function ShareLinkButton({ getSnapshot }: { getSnapshot: () => DesignSnap
     if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
     setStatus('pending');
 
-    const snapshot = getSnapshot();
+    // The final result, not the editor's rule log — see ShareSnapshotV3.
+    const snapshot = shareSnapshotFor(getSnapshot());
     // Never rejects: any server failure silently falls back to the long hash link.
     const urlPromise = createShortShareUrl(snapshot).then((short) => short ?? buildShareUrl(snapshot));
 
