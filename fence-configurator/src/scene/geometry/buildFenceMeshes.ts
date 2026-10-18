@@ -26,8 +26,8 @@ import { buildPostGeometry } from './postGeometry';
  * It shows through color as well as shape, since drawing mode renders the
  * fence unlit in each material's own color.
  */
-const SEAM_HEIGHT_CM = 0.4;
-const SEAM_PROUD_CM = 0.1;
+const SEAM_HEIGHT_CM = 0.1;
+const SEAM_PROUD_CM = 0.01;
 const SEAM_DARKEN = 0.55;
 
 export interface FenceGeometryStats {
