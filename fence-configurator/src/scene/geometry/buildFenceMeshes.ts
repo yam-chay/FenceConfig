@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { layoutShape, fieldCountForLeg, legTopHeightCm, type Shape } from '../../geometry/shape';
 import { buildPostSpec, activeGrooveFaces } from '../../geometry/post';
 import {
@@ -15,6 +16,19 @@ import { resolveBoardColorHex } from '../resolvers';
 import { fieldBoardStack } from '../fieldStack';
 import { ALUMINUM_ROUGHNESS, ALUMINUM_METALNESS } from '../materials/materials';
 import { buildPostGeometry } from './postGeometry';
+
+/**
+ * Seam marks: where two boards meet with a zero spacer, nothing on a flat
+ * box shows the join and the column reads as one tall board. A thin strip
+ * across the join, standing slightly proud of both faces and darker than
+ * the boards, marks it. Purely visual — added after the stack is resolved,
+ * never read by geometry/, so heights, counts and closure are untouched.
+ * It shows through color as well as shape, since drawing mode renders the
+ * fence unlit in each material's own color.
+ */
+const SEAM_HEIGHT_CM = 0.4;
+const SEAM_PROUD_CM = 0.1;
+const SEAM_DARKEN = 0.55;
 
 export interface FenceGeometryStats {
   boardCount: number;
@@ -112,6 +126,25 @@ export function buildFenceMeshes(
         envMapIntensity: envIntensity,
       });
       boardMatCache.set(hex, mat);
+    }
+    return mat;
+  }
+  const seamMatCache = new Map<string, THREE.MeshStandardMaterial>();
+  /** A shade under the darker of the two boards meeting at the seam. */
+  function seamMaterial(hexBelow: string, hexAbove: string): THREE.MeshStandardMaterial {
+    const key = `${hexBelow}|${hexAbove}`;
+    let mat = seamMatCache.get(key);
+    if (!mat) {
+      const below = new THREE.Color(hexBelow);
+      const above = new THREE.Color(hexAbove);
+      const darker = below.getHSL({ h: 0, s: 0, l: 0 }).l <= above.getHSL({ h: 0, s: 0, l: 0 }).l ? below : above;
+      mat = new THREE.MeshStandardMaterial({
+        color: darker.clone().multiplyScalar(SEAM_DARKEN),
+        roughness: ALUMINUM_ROUGHNESS,
+        metalness: ALUMINUM_METALNESS,
+        envMapIntensity: envIntensity,
+      });
+      seamMatCache.set(key, mat);
     }
     return mat;
   }
@@ -440,9 +473,21 @@ export function buildFenceMeshes(
       fenceGroup.add(wallMesh);
     }
 
+    const seamPieces = new Map<THREE.MeshStandardMaterial, THREE.BufferGeometry[]>();
+    let prevHex: string | null = null;
     for (const board of boardStack.boards) {
       const boardAbsHeightCm = field.baseHeightCm + board.centerCm;
       const hex = resolveHex(field.legIndex, field.index, board.stepIndex);
+      // Step 0 sits on the rosette, which already reads as its own part.
+      if (prevHex !== null && board.spacerBelowCm <= 0) {
+        const seamGeo = new THREE.BoxGeometry(boardLengthM, SEAM_HEIGHT_CM / 100, boardThicknessM + (2 * SEAM_PROUD_CM) / 100);
+        seamGeo.translate(0, baseM + (board.centerCm - board.boardHeightCm / 2) / 100, 0);
+        const seamMat = seamMaterial(prevHex, hex);
+        const pieces = seamPieces.get(seamMat) ?? [];
+        pieces.push(seamGeo);
+        seamPieces.set(seamMat, pieces);
+      }
+      prevHex = hex;
       const isHighlighted =
         selection?.kind === 'board' &&
         selection.legIndex === field.legIndex &&
@@ -470,6 +515,18 @@ export function buildFenceMeshes(
       fenceGroup.add(mesh);
       totalBoards++;
       boardCountByLeg[field.legIndex] = (boardCountByLeg[field.legIndex] ?? 0) + 1;
+    }
+    // One mesh per seam color per field, not one per seam.
+    for (const [seamMat, pieces] of seamPieces) {
+      const seamMesh = new THREE.Mesh(mergeGeometries(pieces, false), seamMat);
+      pieces.forEach((g) => g.dispose());
+      seamMesh.position.set(field.position.x, 0, field.position.z);
+      seamMesh.rotation.y = -field.heading;
+      seamMesh.userData.kind = 'seam';
+      // Clicks go through to the board behind — the strip stands proud of its face.
+      seamMesh.raycast = () => {};
+      seamMesh.receiveShadow = true;
+      fenceGroup.add(seamMesh);
     }
     includeInLeg(field.legIndex, field.position.x, field.position.z, baseM + field.fillHeightCm / 100);
   }
