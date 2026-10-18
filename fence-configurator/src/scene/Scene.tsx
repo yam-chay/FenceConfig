@@ -112,6 +112,8 @@ interface SceneProps {
    */
   projection?: CameraProjection;
   onProjectionChange?: (projection: CameraProjection) => void;
+  /** Drawing mode's backdrop, 0 = the light paper, 1 = the dark grey (see DRAWING_BACKDROP_PALETTES). Never touches the 3D world's sky. */
+  drawingBackdrop?: number;
   /** The navigation gizmo's box. Scene draws the gizmo into it and handles its pointer input. Hidden (zero size) = not drawn. */
   gizmoElRef?: { current: HTMLDivElement | null };
 }
@@ -167,6 +169,7 @@ export default function Scene({
   cameraSnapshotRef,
   projection = 'perspective',
   onProjectionChange,
+  drawingBackdrop = 0,
   gizmoElRef,
 }: SceneProps) {
   const fogRef = useRef<THREE.Fog | null>(null);
@@ -204,6 +207,8 @@ export default function Scene({
   // Scene's own requests so the very next frame already uses it.
   const isOrthoRef = useRef(projection === 'orthographic');
   isOrthoRef.current = projection === 'orthographic';
+  const drawingBackdropRef = useRef(drawingBackdrop);
+  drawingBackdropRef.current = drawingBackdrop;
   const onProjectionChangeRef = useRef(onProjectionChange);
   onProjectionChangeRef.current = onProjectionChange;
   /** Set by the setup effect: fly to a face and switch to drawing mode. */
@@ -1056,6 +1061,7 @@ export default function Scene({
         alignment: THREE.MathUtils.smoothstep(offset.clone().normalize().dot(faceOffsetDirection(face)), 0.97, 0.999),
         pxPerMeter: container.clientHeight / (2 * halfHeight),
         opacity: drawingBlend,
+        backdrop: drawingBackdropRef.current,
       });
       if (drawingBlend < 1) {
         renderer.render(scene, cam);

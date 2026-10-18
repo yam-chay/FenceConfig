@@ -10,6 +10,7 @@ import { formatTrimmed } from './app/utils/numberUtils';
 import { PrecisionSlider } from './app/components/PrecisionSlider';
 import { HeightSnapSlider } from './app/components/HeightSnapSlider';
 import { CircularTimeSlider } from './app/components/CircularTimeSlider';
+import { BackdropSlider } from './app/components/BackdropSlider';
 import { legStackReports } from './scene/fieldStack';
 import { useHistory } from './app/hooks/useHistory';
 import { usePanelState } from './app/hooks/usePanelState';
@@ -269,6 +270,9 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
   /** Bumped to fly the camera back to the whole fence (view mode). */
   const [frameAllNonce, setFrameAllNonce] = useState(0);
   const [projection, setProjection] = useState<CameraProjection>('perspective');
+  // Drawing mode's backdrop, 0 light – 1 dark. Its own state, never mixed
+  // with timeOfDayHours: each slider only ever drives its own mode's look.
+  const [drawingBackdrop, setDrawingBackdrop] = useState(0);
   /** Box under the history buttons that Scene draws the navigation gizmo into. */
   const gizmoRef = useRef<HTMLDivElement>(null);
   /** Mobile edit sheet shows one category at a time. */
@@ -448,11 +452,16 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
             cameraSnapshotRef={cameraSnapshotRef}
             projection={projection}
             onProjectionChange={setProjection}
+            drawingBackdrop={drawingBackdrop}
             gizmoElRef={gizmoRef}
           />
 
           <div className={showFenceTab || showEditTab ? 'time-dial time-dial-raised' : 'time-dial'}>
-            <CircularTimeSlider hours={timeOfDayHours} onChange={setTimeOfDayHours} />
+            {projection === 'orthographic' ? (
+              <BackdropSlider level={drawingBackdrop} onChange={setDrawingBackdrop} />
+            ) : (
+              <CircularTimeSlider hours={timeOfDayHours} onChange={setTimeOfDayHours} />
+            )}
           </div>
 
           {(showFenceTab || showEditTab) && (

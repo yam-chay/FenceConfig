@@ -23,8 +23,51 @@ export interface DrawingGrid {
     pxPerMeter: number;
     /** Whole backdrop's opacity — the fade between the 3D world and drawing mode. */
     opacity: number;
+    /** Where the backdrop sits between its light and dark palettes, 0–1 (see DRAWING_BACKDROP_PALETTES). */
+    backdrop: number;
   }): void;
   dispose(): void;
+}
+
+type Rgb = [number, number, number];
+interface BackdropPalette {
+  paper: Rgb;
+  belowGround: Rgb;
+  minorLine: Rgb;
+  majorLine: Rgb;
+  groundLine: Rgb;
+}
+
+/**
+ * The backdrop's two ends; the drawing-mode slider blends between them so a
+ * light fence that vanishes on white paper can be read against grey.
+ * Display values, written straight to gl_FragColor. Every line stays darker
+ * than its paper at both ends, so no point along the blend loses the grid
+ * the way light-on-dark lines crossing dark-on-light ones would.
+ */
+export const DRAWING_BACKDROP_PALETTES: { light: BackdropPalette; dark: BackdropPalette } = {
+  light: {
+    paper: [0.957, 0.965, 0.973],
+    belowGround: [0.905, 0.918, 0.929],
+    minorLine: [0.86, 0.885, 0.905],
+    majorLine: [0.74, 0.775, 0.81],
+    groundLine: [0.36, 0.42, 0.47],
+  },
+  // Paper is the client's chosen grey, "Space Oddity 1518A" (#54575B).
+  dark: {
+    paper: [0.329, 0.341, 0.357],
+    belowGround: [0.3, 0.311, 0.326],
+    minorLine: [0.288, 0.299, 0.314],
+    majorLine: [0.238, 0.248, 0.262],
+    groundLine: [0.12, 0.135, 0.15],
+  },
+};
+
+/** CSS color of the backdrop's paper at `level` (0–1) — the slider's own gradient ends. */
+export function drawingBackdropCss(level: number): string {
+  const { light, dark } = DRAWING_BACKDROP_PALETTES;
+  const c = light.paper.map((v, i) => Math.round(THREE.MathUtils.lerp(v, dark.paper[i], level) * 255));
+  return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
 }
 
 /** Thin lines step by powers of ten and never come closer than this on screen. */
@@ -56,6 +99,11 @@ export function createDrawingGrid(): DrawingGrid {
       uSide: { value: 1 },
       uAlignment: { value: 0 },
       uOpacity: { value: 0 },
+      uPaper: { value: new THREE.Vector3() },
+      uBelowGround: { value: new THREE.Vector3() },
+      uMinorLine: { value: new THREE.Vector3() },
+      uMajorLine: { value: new THREE.Vector3() },
+      uGroundLine: { value: new THREE.Vector3() },
     },
     vertexShader: /* glsl */ `
       varying vec3 vWorld;
@@ -72,6 +120,11 @@ export function createDrawingGrid(): DrawingGrid {
       uniform float uSide;
       uniform float uAlignment;
       uniform float uOpacity;
+      uniform vec3 uPaper;
+      uniform vec3 uBelowGround;
+      uniform vec3 uMinorLine;
+      uniform vec3 uMajorLine;
+      uniform vec3 uGroundLine;
       varying vec3 vWorld;
 
       // Anti-aliased grid lines, widthPx wide on screen at any zoom.
@@ -82,17 +135,16 @@ export function createDrawingGrid(): DrawingGrid {
       }
 
       void main() {
-        const vec3 paper = vec3(0.957, 0.965, 0.973);
         vec2 c = vec2(dot(vWorld, uAxisU), dot(vWorld, uAxisV));
-        vec3 col = paper;
-        if (uSide > 0.5 && c.y < 0.0) col = vec3(0.905, 0.918, 0.929); // below ground
-        col = mix(col, vec3(0.86, 0.885, 0.905), lines(c, uMinor, 1.0) * uMinorAlpha);
-        col = mix(col, vec3(0.74, 0.775, 0.81), lines(c, uMinor * 10.0, 1.2));
+        vec3 col = uPaper;
+        if (uSide > 0.5 && c.y < 0.0) col = uBelowGround;
+        col = mix(col, uMinorLine, lines(c, uMinor, 1.0) * uMinorAlpha);
+        col = mix(col, uMajorLine, lines(c, uMinor * 10.0, 1.2));
         if (uSide > 0.5) {
           float ground = abs(c.y) / fwidth(c.y);
-          col = mix(col, vec3(0.36, 0.42, 0.47), 1.0 - min(ground / 1.6, 1.0));
+          col = mix(col, uGroundLine, 1.0 - min(ground / 1.6, 1.0));
         }
-        gl_FragColor = vec4(mix(paper, col, uAlignment), uOpacity);
+        gl_FragColor = vec4(mix(uPaper, col, uAlignment), uOpacity);
       }`,
   });
   const geometry = new THREE.PlaneGeometry(PLANE_SIZE_M, PLANE_SIZE_M);
@@ -102,7 +154,7 @@ export function createDrawingGrid(): DrawingGrid {
 
   return {
     scene,
-    update({ camera, target, face, alignment, pxPerMeter, opacity }) {
+    update({ camera, target, face, alignment, pxPerMeter, opacity, backdrop }) {
       const side = face !== 'top';
       const u = material.uniforms.uAxisU.value as THREE.Vector3;
       const v = material.uniforms.uAxisV.value as THREE.Vector3;
@@ -121,6 +173,22 @@ export function createDrawingGrid(): DrawingGrid {
       material.uniforms.uSide.value = side ? 1 : 0;
       material.uniforms.uAlignment.value = alignment;
       material.uniforms.uOpacity.value = opacity;
+      const { light, dark } = DRAWING_BACKDROP_PALETTES;
+      for (const [uniform, key] of [
+        ['uPaper', 'paper'],
+        ['uBelowGround', 'belowGround'],
+        ['uMinorLine', 'minorLine'],
+        ['uMajorLine', 'majorLine'],
+        ['uGroundLine', 'groundLine'],
+      ] as const) {
+        const a = light[key];
+        const b = dark[key];
+        (material.uniforms[uniform].value as THREE.Vector3).set(
+          THREE.MathUtils.lerp(a[0], b[0], backdrop),
+          THREE.MathUtils.lerp(a[1], b[1], backdrop),
+          THREE.MathUtils.lerp(a[2], b[2], backdrop),
+        );
+      }
       plane.position.copy(target);
       plane.quaternion.copy(camera.quaternion);
     },
