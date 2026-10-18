@@ -53,13 +53,13 @@ export const DRAWING_BACKDROP_PALETTES: { light: BackdropPalette; dark: Backdrop
     majorLine: [0.74, 0.775, 0.81],
     groundLine: [0.36, 0.42, 0.47],
   },
-  // Paper is the client's chosen dark grey, #424445.
+  // Paper is the client's chosen grey, "Space Oddity 1518A" (#54575B).
   dark: {
-    paper: [0.259, 0.267, 0.271],
-    belowGround: [0.236, 0.243, 0.246],
-    minorLine: [0.228, 0.235, 0.238],
-    majorLine: [0.189, 0.195, 0.198],
-    groundLine: [0.098, 0.101, 0.103],
+    paper: [0.329, 0.341, 0.357],
+    belowGround: [0.3, 0.311, 0.326],
+    minorLine: [0.288, 0.299, 0.314],
+    majorLine: [0.238, 0.248, 0.262],
+    groundLine: [0.12, 0.135, 0.15],
   },
 };
 
