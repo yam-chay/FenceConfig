@@ -457,11 +457,13 @@ function FenceApp({ initial }: { initial: InitialDesign }) {
           />
 
           <div className={showFenceTab || showEditTab ? 'time-dial time-dial-raised' : 'time-dial'}>
-            {projection === 'orthographic' ? (
+            {/* Both stay mounted and cross-fade; the hidden one is inert so it can't be dragged or focused. */}
+            <div className={projection === 'orthographic' ? 'time-dial-slot' : 'time-dial-slot time-dial-slot-hidden'} inert={projection !== 'orthographic'}>
               <BackdropSlider level={drawingBackdrop} onChange={setDrawingBackdrop} />
-            ) : (
+            </div>
+            <div className={projection === 'orthographic' ? 'time-dial-slot time-dial-slot-hidden' : 'time-dial-slot'} inert={projection === 'orthographic'}>
               <CircularTimeSlider hours={timeOfDayHours} onChange={setTimeOfDayHours} />
-            )}
+            </div>
           </div>
 
           {(showFenceTab || showEditTab) && (

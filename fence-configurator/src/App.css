@@ -1305,6 +1305,42 @@ body {
   left: 12px;
   bottom: 12px;
   z-index: 5;
+  /* Drawing mode's backdrop slider and the time dial share one cell, both bottom-left. */
+  display: grid;
+  align-items: end;
+  justify-items: start;
+  /* The page is RTL; without this "start" would pin both to the cell's right edge. */
+  direction: ltr;
+  /* The cell is as wide as the slider: its empty part beside the dial must not swallow canvas drags. */
+  pointer-events: none;
+}
+
+/* Same 280 ms as the scene's own fade into drawing mode (DRAWING_FADE_MS). */
+.time-dial-slot {
+  grid-area: 1 / 1;
+  pointer-events: auto;
+  transform-origin: bottom left;
+  transition:
+    opacity 280ms ease,
+    transform 280ms ease,
+    visibility 0s linear 0s;
+}
+
+.time-dial-slot-hidden {
+  opacity: 0;
+  transform: scale(0.85);
+  visibility: hidden;
+  transition:
+    opacity 280ms ease,
+    transform 280ms ease,
+    visibility 0s linear 280ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .time-dial-slot,
+  .time-dial-slot-hidden {
+    transition: none;
+  }
 }
 
 /* Dock tabs — mobile only. A folded panel waits here as a bookmark. */
